@@ -146,6 +146,8 @@ public final class MapScreen extends Screen {
 	private Button mapsButton;
 	private Button waypointsButton;
 	private Button settingsButton;
+	/** Quick visibility control for all claim providers; the last non-off setting is remembered. */
+	private Button claimsButton;
 	/** Turns draw mode on and off; it sits above the zoom buttons. */
 	private Button drawButton;
 	private final DrawMode draw = new DrawMode();
@@ -228,8 +230,11 @@ public final class MapScreen extends Screen {
 		this.settingsButton = this.addRenderableWidget(Button.builder(Component.translatable("diorama.settings.button"), b ->
 			this.minecraft.gui.setScreen(new SettingsScreen(this))).size(64, BAR).build());
 		this.settingsButton.visible = settings.mapSettingsButton;
+		this.claimsButton = this.addRenderableWidget(Button.builder(claimsToggleLabel(), b -> this.toggleClaims())
+			.size(75, BAR).createNarration(n -> claimsToggleLabel()).build());
+		this.claimsButton.visible = Claims.supported();
 		int right = this.width;
-		for (Button button : List.of(this.settingsButton, this.waypointsButton, this.mapsButton)) {
+		for (Button button : List.of(this.settingsButton, this.waypointsButton, this.mapsButton, this.claimsButton)) {
 			if (button.visible) {
 				right -= button.getWidth();
 				button.setPosition(right, 0);
@@ -459,6 +464,7 @@ public final class MapScreen extends Screen {
 		}
 		// The map can open before a server names its world, and the list of maps is the world's.
 		this.mapsButton.active = Maps.get() != null;
+		this.claimsButton.active = this.otherDimension == null;
 		MapSession session = MapSession.get();
 		Entity viewer = MapSession.viewer();
 		if (session == null || viewer == null) {
@@ -680,10 +686,30 @@ public final class MapScreen extends Screen {
 		graphics.text(this.font, name, this.width - 6 - this.font.width(name), this.height - 11, 0xFFFFFFFF, false);
 	}
 
+	/** Toggles the existing claims setting without losing the fullscreen-only preference. */
+	private void toggleClaims() {
+		Settings settings = Settings.get();
+		if (settings.claims == Settings.ClaimsShown.OFF) {
+			settings.claims = settings.claimsWhenEnabled == Settings.ClaimsShown.OFF
+				? Settings.ClaimsShown.ALWAYS : settings.claimsWhenEnabled;
+		} else {
+			settings.claimsWhenEnabled = settings.claims;
+			settings.claims = Settings.ClaimsShown.OFF;
+		}
+		settings.save();
+		this.menu = null;
+		this.claimsButton.setMessage(claimsToggleLabel());
+	}
+
+	private static Component claimsToggleLabel() {
+		return Component.translatable(Settings.get().claims == Settings.ClaimsShown.OFF
+			? "diorama.map.claims_off" : "diorama.map.claims_on");
+	}
+
 	/** Where the buttons at the top right start: the status line has to end before them. */
 	private int buttonsStart() {
 		int start = this.width;
-		for (Button button : List.of(this.mapsButton, this.waypointsButton, this.settingsButton)) {
+		for (Button button : List.of(this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton)) {
 			if (button.visible) {
 				start = Math.min(start, button.getX());
 			}
@@ -1521,7 +1547,7 @@ public final class MapScreen extends Screen {
 
 	/** Whether a point is on a shown button, whether or not it can be pressed right now. */
 	private boolean onButton(double x, double y) {
-		for (AbstractWidget widget : new AbstractWidget[] {this.facingButton, this.dimensionButton, this.mapsButton, this.waypointsButton, this.settingsButton, this.export, this.zoomIn, this.zoomOut, this.recenter, this.sliceUp, this.sliceDown, this.drawButton}) {
+		for (AbstractWidget widget : new AbstractWidget[] {this.facingButton, this.dimensionButton, this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton, this.export, this.zoomIn, this.zoomOut, this.recenter, this.sliceUp, this.sliceDown, this.drawButton}) {
 			if (on(widget, x, y)) {
 				return true;
 			}
