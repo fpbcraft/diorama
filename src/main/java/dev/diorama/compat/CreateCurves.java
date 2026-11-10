@@ -506,6 +506,18 @@ public final class CreateCurves implements MapAnnotations.Source {
             out[2 * i] = view.screenX(Projection.u(pos.x, pos.z));
             out[2 * i + 1] = view.screenY(Projection.v(pos.x, pos.y, pos.z));
         }
+        // Match the GUI's expected front-face winding (as MapCanvas.rect does).
+        // Rails can run in either direction, and a world-space cross-vector can
+        // otherwise project as back-facing, making half the curves disappear.
+        float cross = (out[2] - out[0]) * (out[5] - out[1])
+            - (out[3] - out[1]) * (out[4] - out[0]);
+        if (cross > 0) {
+            float x = out[2], y = out[3];
+            out[2] = out[6];
+            out[3] = out[7];
+            out[6] = x;
+            out[7] = y;
+        }
         return out;
     }
 
