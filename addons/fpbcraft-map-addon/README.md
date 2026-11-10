@@ -59,11 +59,12 @@ Diorama jar, rather than bundling Diorama or resolving an older jar. It targets 
 - Compact icon badges replace the always-on labels for live markers. Full details appear
   on hover. Separate toggles under Diorama Settings > Overlays control each integration;
   ships render as blocks by default, not as name pins.
-- Create's Bezier curves are rendered by the core map extension (PR #2) with **discrete ties
-  at Create's segment count**, separate correctly spaced rails and material-specific model
-  sprites when available. This avoids the prior flat, continuous wooden/metal ribbon.
-  The result is a map-optimized reconstruction, not full Flywheel 3D model rasterization.
-  Curves should eventually migrate into the standalone add-on with terrain/fog masking.
+- Curved Create/Steam 'n' Rails sections are rasterized by Diorama PR #2 onto the **same
+  four-pixels-per-block map grid** as ordinary tracks, with Diorama's material colours,
+  sunlight/grade, mipmaps and terrain occlusion. Tracks with `BezierConnection.hasGirder`
+  gain a continuous shaded metal beam below the rails; tracks without one still render.
+  No original Minecraft sprite textures are drawn by the overlay. This remains a
+  map-styled reconstruction rather than full per-triangle 3D ray tracing.
 - Individual marker groups can be enabled/disabled via Settings > Overlays; full clustering
   and request-detail screens remain to be implemented. The existing global Diorama
   waypoint setting also controls whether any live pins appear.
@@ -78,4 +79,4 @@ Diorama jar, rather than bundling Diorama or resolving an older jar. It targets 
    server-side permission checks.
 4. Add territory chunk outlines, station timetable details, train route selection and
    selected-ship route/destination labels.
-5. Move the curved-track provider into the add-on and add exploration/fog masking.
+5. Move the curved-track provider into the add-on, refine custom material/girder geometry and test bridge/tunnel occlusion.
