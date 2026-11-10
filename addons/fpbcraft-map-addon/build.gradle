@@ -20,7 +20,9 @@ neoForge {
 
 // Use the exact matching core artifact, not every (possibly stale) Diorama jar in build/libs.
 // The annotation API is compiled into Diorama by the parent project's Stonecutter build.
-def dioramaJar = file('../../versions/1.21.1-neoforge/build/libs/diorama-0.9.0+neoforge-1.21.1.jar')
+def dioramaProperties = new Properties()
+file('../../gradle.properties').withInputStream { dioramaProperties.load(it) }
+def dioramaJar = file("../../versions/1.21.1-neoforge/build/libs/diorama-${dioramaProperties.getProperty('mod_version')}+neoforge-1.21.1.jar")
 
 dependencies {
     // The add-on is a separate jar and does not package Diorama itself.
@@ -32,7 +34,7 @@ tasks.named('compileJava', JavaCompile) {
         if (!dioramaJar.isFile()) {
             throw new GradleException(
                 "Diorama's NeoForge 1.21.1 jar is missing. First run from the repository root: " +
-                "JAVA_HOME=\\$(/usr/libexec/java_home -v 25) ./gradlew :1.21.1-neoforge:build"
+                "Run ./gradlew :1.21.1-neoforge:build from the repository root before building the add-on."
             )
         }
         new java.util.zip.ZipFile(dioramaJar).withCloseable { jar ->
