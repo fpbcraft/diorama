@@ -44,15 +44,16 @@ public final class CreateCurves implements MapAnnotations.Source {
     private static final int STEEL_RAIL = 0xFFD2D2D0;
     private static final int GOLD_RAIL = 0xFFEAC36B;
 
-    private record Palette(int sleeper, int metal, float gauge, boolean monorail, boolean invisible,
+    static record Palette(int sleeper, int metal, float gauge, boolean monorail, boolean invisible,
         TextureAtlasSprite tieSprite, TextureAtlasSprite railSprite) {
     }
 
     /** A strip of world-space curve with transverse normals, sampled at Create's tie spacing. */
-    private record Segment(Vec3 from, Vec3 to, Vec3 across, Palette palette) {
+    static record Segment(Vec3 from, Vec3 to, Vec3 across, Vec3 up, Palette palette, boolean girder) {
     }
 
     private Map<String, List<Segment>> segments = Map.of();
+    private final CurveRaster pixels = new CurveRaster();
     private int ticks;
     private Object world;
     private BlockLooks lastLooks;
@@ -66,6 +67,7 @@ public final class CreateCurves implements MapAnnotations.Source {
     private final Method isTurnMethod;
     private final Method getTurnMethod;
     private final Field primaryField;
+    private final Field hasGirderField;
     private final Method trackMaterialMethod;
     private final Method edgeLengthMethod;
     private final Method edgePositionMethod;
@@ -75,7 +77,7 @@ public final class CreateCurves implements MapAnnotations.Source {
 
     private CreateCurves(Object railways, Field graphsField, Method nodesMethod, Method locateNodeMethod,
         Method connectionsFromMethod, Method locationDimensionMethod, Method isTurnMethod, Method getTurnMethod,
-        Field primaryField, Method trackMaterialMethod, Method edgeLengthMethod, Method edgePositionMethod,
+        Field primaryField, Field hasGirderField, Method trackMaterialMethod, Method edgeLengthMethod, Method edgePositionMethod,
         Method edgeNormalMethod, Method turnSegmentCountMethod, Method turnSegmentTimeMethod) {
         this.railways = railways;
         this.graphsField = graphsField;
@@ -86,6 +88,7 @@ public final class CreateCurves implements MapAnnotations.Source {
         this.isTurnMethod = isTurnMethod;
         this.getTurnMethod = getTurnMethod;
         this.primaryField = primaryField;
+        this.hasGirderField = hasGirderField;
         this.trackMaterialMethod = trackMaterialMethod;
         this.edgeLengthMethod = edgeLengthMethod;
         this.edgePositionMethod = edgePositionMethod;
@@ -113,6 +116,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                 edge.getMethod("isTurn"),
                 edge.getMethod("getTurn"),
                 bezier.getField("primary"),
+                bezier.getField("hasGirder"),
                 edge.getMethod("getTrackMaterial"),
                 edge.getMethod("getLength"),
                 edge.getMethod("getPosition", graph, double.class),
@@ -133,18 +137,21 @@ public final class CreateCurves implements MapAnnotations.Source {
             this.world = null;
             this.segments = Map.of();
             this.materialColours.clear();
+            this.pixels.clear();
             return;
         }
         BlockLooks looks = BlockLooks.get();
         if (this.lastLooks != looks) {
             this.lastLooks = looks;
             this.materialColours.clear();
+            this.pixels.clear();
             this.ticks = 0;
         }
         if (this.world != minecraft.level) {
             this.world = minecraft.level;
             this.ticks = 0;
             this.segments = Map.of();
+            this.pixels.clear();
         }
         if (--this.ticks > 0) {
             return;
@@ -170,6 +177,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                     for (Object edge : connections.values()) {
                         if (++edges > MAX_EDGES) {
                             this.segments = Map.copyOf(next);
+                            this.pixels.update(this.segments);
                             return;
                         }
                         if (!Boolean.TRUE.equals(this.isTurnMethod.invoke(edge))) {
@@ -197,6 +205,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                         double length = ((Number) this.edgeLengthMethod.invoke(edge)).doubleValue();
                         // Match Create's own Bezier segment count: one tie per rendered section.
                         // The limit prevents malformed third-party graphs from overwhelming the GUI.
+                        boolean hasGirder = this.hasGirderField.getBoolean(turn);
                         int nativeSegments = Math.max(1,
                             ((Number) this.turnSegmentCountMethod.invoke(turn)).intValue());
                         int count = Math.min(MAX_SAMPLES_PER_EDGE, nativeSegments);
@@ -218,7 +227,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                                 across = new Vec3(-tangent.z, 0, tangent.x);
                             }
                             if (across.lengthSqr() >= 1e-6) {
-                                list.add(new Segment(previous, current, across.normalize(), palette));
+                                list.add(new Segment(previous, current, across.normalize(), up.normalize(), palette, hasGirder));
                             }
                             previous = current;
                             previousT = t;
@@ -227,6 +236,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                 }
             }
             this.segments = Map.copyOf(next);
+            this.pixels.update(this.segments);
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Unable to read Create's synchronized railway graph", exception);
         }
@@ -414,197 +424,13 @@ public final class CreateCurves implements MapAnnotations.Source {
     }
 
     /**
-     * Draw the actual curved-track layout: discrete transverse ties at Create's half-block
-     * spacing plus separate left/right steel rails. A Steam 'n' Rails partial-model sprite
-     * textures each section when available. The block atlas is batched into a few GUI draws.
-     *
-     * Unlike the previous screen-space ribbon, widths are measured in world units using
-     * the Bezier tangent and surface normal. Banking, map angle and gauge therefore stay
-     * consistent as the map rotates or zooms.
+     * Static curves are baked onto Diorama's 4-pixels-per-block map grid and rendered with
+     * the same tile sampling as terrain. See CurveRaster for girder support and occlusion.
      */
     @Override
     public void draw(GuiGraphicsExtractor graphics, MapViewport.View view, String dimension, boolean fullscreen) {
-        if (!Settings.get().showCreateCurves || view.layer() != TileKey.SURFACE || view.zoom() < 0.22) {
-            return;
-        }
-        List<Segment> lines = this.segments.get(dimension);
-        if (lines == null || lines.isEmpty()) {
-            return;
-        }
-        int budget = Math.min(lines.size(), MAX_RENDER_SEGMENTS);
-        MapCanvas canvas = MapCanvas.of(graphics);
-        Circle circle = view.round() ? Circle.in(view) : null;
-        // The circular minimap draws clipped solid quads immediately. Avoid allocating
-        // fullscreen-sized GPU batches every frame when they will remain empty.
-        QuadBatch ties = new QuadBatch(circle == null ? budget : 0);
-        QuadBatch railBeds = new QuadBatch(circle == null ? budget * 2 : 0);
-        QuadBatch rails = new QuadBatch(circle == null ? budget * 2 : 0);
-        graphics.enableScissor(view.x(), view.y(), view.x() + view.width(), view.y() + view.height());
-        int drawn = 0;
-        for (Segment line : lines) {
-            if (drawn >= MAX_RENDER_SEGMENTS) break;
-            Palette p = line.palette();
-            double gauge = p.gauge();
-            Vec3 from = line.from();
-            Vec3 to = line.to();
-            Vec3 transverse = line.across();
-            Vec3 diff = to.subtract(from);
-            if (diff.lengthSqr() < 1e-7) continue;
-
-            // A separate tie for each of Create's native Bezier sections. It is recessed
-            // below the rail heads just as its partial model is in TrackRenderer.
-            Vec3 middle = from.add(to).scale(.5).add(0, -.125, 0);
-            Vec3 acrossTie = transverse.scale(1.25 * gauge);
-            Vec3 halfLength = diff.normalize().scale(Math.min(.17, diff.length() * .33));
-            Vec3[] tie = {
-                middle.subtract(halfLength).add(acrossTie),
-                middle.subtract(halfLength).subtract(acrossTie),
-                middle.add(halfLength).subtract(acrossTie),
-                middle.add(halfLength).add(acrossTie)
-            };
-
-            // First screen-cull the tie (which bounds this short rail section).
-            float[] tieQuad = projected(view, tie);
-            if (!onScreen(view, tieQuad, 7)) continue;
-            append(canvas, circle, ties, tieQuad, p.tieSprite(), p.sleeper());
-
-            // Sleeper gaps now reveal terrain, unlike the old solid wooden ribbon.
-            // The rails follow the exact Bezier in world space; two slim overlapping
-            // quads suggest the dark rail side and the material's brighter upper face.
-            double offset = .965 * gauge;
-            double railWidth = .18 * gauge;
-            for (int side = -1; side <= 1; side += 2) {
-                if (p.monorail() && side == 1) continue;
-                double shift = p.monorail() ? 0 : offset * side;
-                float[] bedQuad = projected(view, strip(from, to, transverse, shift, railWidth + .065 * gauge));
-                append(canvas, circle, railBeds, bedQuad, null, 0xDB343537);
-                Vec3 lift = new Vec3(0, .045, 0);
-                float[] railQuad = projected(view,
-                    strip(from.add(lift), to.add(lift), transverse, shift, railWidth));
-                append(canvas, circle, rails, railQuad, p.railSprite(), p.metal());
-            }
-            drawn++;
-        }
-        // Tie texture is shown under the rails; all textures sample the resource-pack
-        // block atlas directly without creating or reloading extra GPU textures.
-        ties.flush(canvas);
-        railBeds.flush(canvas);
-        rails.flush(canvas);
-        graphics.disableScissor();
-    }
-
-    private static Vec3[] strip(Vec3 a, Vec3 b, Vec3 cross, double offset, double width) {
-        Vec3 outer = cross.scale(offset + width / 2);
-        Vec3 inner = cross.scale(offset - width / 2);
-        return new Vec3[] {a.add(outer), a.add(inner), b.add(inner), b.add(outer)};
-    }
-
-    private static float[] projected(MapViewport.View view, Vec3[] quad) {
-        float[] out = new float[8];
-        for (int i = 0; i < 4; i++) {
-            Vec3 pos = quad[i];
-            out[2 * i] = view.screenX(Projection.u(pos.x, pos.z));
-            out[2 * i + 1] = view.screenY(Projection.v(pos.x, pos.y, pos.z));
-        }
-        // Match the GUI's expected front-face winding (as MapCanvas.rect does).
-        // Rails can run in either direction, and a world-space cross-vector can
-        // otherwise project as back-facing, making half the curves disappear.
-        float cross = (out[2] - out[0]) * (out[5] - out[1])
-            - (out[3] - out[1]) * (out[4] - out[0]);
-        if (cross > 0) {
-            float x = out[2], y = out[3];
-            out[2] = out[6];
-            out[3] = out[7];
-            out[6] = x;
-            out[7] = y;
-        }
-        return out;
-    }
-
-    private static boolean onScreen(MapViewport.View view, float[] points, int margin) {
-        float left = Float.POSITIVE_INFINITY;
-        float top = Float.POSITIVE_INFINITY;
-        float right = Float.NEGATIVE_INFINITY;
-        float bottom = Float.NEGATIVE_INFINITY;
-        for (int i = 0; i < points.length; i += 2) {
-            left = Math.min(left, points[i]);
-            right = Math.max(right, points[i]);
-            top = Math.min(top, points[i + 1]);
-            bottom = Math.max(bottom, points[i + 1]);
-        }
-        return right >= view.x() - margin && left <= view.x() + view.width() + margin
-            && bottom >= view.y() - margin && top <= view.y() + view.height() + margin;
-    }
-
-    private static void append(MapCanvas canvas, Circle circle, QuadBatch batch, float[] quad,
-        TextureAtlasSprite sprite, int fallbackColour) {
-        if (circle != null) {
-            // Circular minimaps clip against their actual visible disc. A solid sampled
-            // material colour is used there because circle-clipping textured UVs requires
-            // interpolating extra vertices (and ties are usually sub-pixel at this scale).
-            float[] clipped = circle.clip(quad, 4);
-            if (clipped != null) canvas.solid(clipped, fallbackColour);
-        } else {
-            batch.add(quad, sprite, fallbackColour);
-        }
-    }
-
-    /** Two interleaved batches: actual atlas sprites when present, solid fallback otherwise. */
-    private static final class QuadBatch {
-        private final float[] texVertices;
-        private final float[] texUvs;
-        private final int[] texColours;
-        private final float[] flatVertices;
-        private final int[] flatColours;
-        private TextureAtlasSprite textureAtlas;
-        private int textures;
-        private int flats;
-
-        QuadBatch(int capacity) {
-            this.texVertices = new float[capacity * 12];
-            this.texUvs = new float[capacity * 8];
-            this.texColours = new int[capacity];
-            this.flatVertices = new float[capacity * 12];
-            this.flatColours = new int[capacity];
-        }
-
-        void add(float[] quad, TextureAtlasSprite sprite, int colour) {
-            if (sprite != null && (textureAtlas == null
-                || textureAtlas.atlasLocation().equals(sprite.atlasLocation()))) {
-                if (textureAtlas == null) textureAtlas = sprite;
-                int index = textures++;
-                positions(quad, texVertices, index);
-                int u = index * 8;
-                texUvs[u] = sprite.getU0();
-                texUvs[u + 1] = sprite.getV0();
-                texUvs[u + 2] = sprite.getU0();
-                texUvs[u + 3] = sprite.getV1();
-                texUvs[u + 4] = sprite.getU1();
-                texUvs[u + 5] = sprite.getV1();
-                texUvs[u + 6] = sprite.getU1();
-                texUvs[u + 7] = sprite.getV0();
-                texColours[index] = 0xFFFFFFFF;
-            } else {
-                int index = flats++;
-                positions(quad, flatVertices, index);
-                flatColours[index] = colour;
-            }
-        }
-
-        void flush(MapCanvas canvas) {
-            if (flats > 0) canvas.solids(flatVertices, flatColours, flats);
-            if (textures > 0 && textureAtlas != null) {
-                canvas.blits(textureAtlas.atlasLocation(), texVertices, texUvs, texColours, textures);
-            }
-        }
-
-        private static void positions(float[] xy, float[] xyz, int index) {
-            int offset = index * 12;
-            for (int i = 0; i < 4; i++) {
-                xyz[offset + 3 * i] = xy[2 * i];
-                xyz[offset + 3 * i + 1] = xy[2 * i + 1];
-                xyz[offset + 3 * i + 2] = 0;
-            }
+        if (Settings.get().showCreateCurves && view.layer() == TileKey.SURFACE) {
+            this.pixels.draw(graphics, view, dimension);
         }
     }
 
