@@ -146,9 +146,11 @@ public final class Crafts {
 				continue;
 			}
 			if (craft.body != null) {
-				// Just left the client's view: keep it where it stopped, or let it go if it was moving.
+				// Check before clearing the source: a body is null once it has left the client.
+				boolean keepWhenUnloaded = craft.body.persistWhenUnloaded();
+				// Keep ordinary settled crafts, but immediately discard transient Sable vessels.
 				craft.body = null;
-				if (!craft.body.persistWhenUnloaded() || !craft.posed || craft.blocks == null || tick - craft.movedAt < PARK_AFTER) {
+				if (!keepWhenUnloaded || !craft.posed || craft.blocks == null || tick - craft.movedAt < PARK_AFTER) {
 					if (craft.posed) {
 						this.worldChanged.accept(craft.box(craft.pose));
 					}
