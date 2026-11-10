@@ -1,6 +1,7 @@
 package dev.fpbcraft.diorama;
 
 import dev.diorama.api.MapAnnotations;
+import dev.diorama.craft.Crafts;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
@@ -16,6 +17,7 @@ public final class FpbcraftDioramaAddon {
             MapAnnotations.register(new TrainMarkers());
         }
         if (ModList.get().isLoaded("sable")) {
+            Crafts.register(new SableCrafts());
             MapAnnotations.register(new ShipMarkers());
         }
     }
