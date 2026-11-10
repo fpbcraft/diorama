@@ -5,6 +5,7 @@ import dev.diorama.Diorama;
 import dev.diorama.Settings;
 import dev.diorama.api.MapAnnotations;
 import dev.diorama.bake.TileKey;
+import dev.diorama.bake.BlockLooks;
 import dev.diorama.render.Circle;
 import dev.diorama.render.MapViewport;
 import dev.diorama.render.gpu.MapCanvas;
@@ -12,11 +13,17 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.level.block.Block;
 
 /**
  * Draws Create's Bezier track sections that have no corresponding block model in Diorama's
@@ -31,15 +38,22 @@ public final class CreateCurves implements MapAnnotations.Source {
     private static final int MAX_EDGES = 30_000;
     private static final int MAX_SAMPLES_PER_EDGE = 72;
     private static final int MAX_RENDER_SEGMENTS = 12_000;
-    private static final int DARK = 0xD038302C;
-    private static final int RAIL = 0xE0C3B8A9;
+    private static final int DEFAULT_SLEEPER = 0xFF765E48;
+    private static final int STEEL_RAIL = 0xFFD2D2D0;
+    private static final int GOLD_RAIL = 0xFFEAC36B;
 
-    private record Segment(Vec3 from, Vec3 to) {
+    private record Palette(int sleeper, int metal, float gauge, boolean monorail, boolean invisible) {
+    }
+
+    /** Each segment carries its own material colours, including Steam 'n' Rails variants. */
+    private record Segment(Vec3 from, Vec3 to, Palette palette) {
     }
 
     private Map<String, List<Segment>> segments = Map.of();
     private int ticks;
     private Object world;
+    private BlockLooks lastLooks;
+    private final Map<Object, Palette> materialColours = new IdentityHashMap<>();
     private final Object railways;
     private final Field graphsField;
     private final Method nodesMethod;
@@ -49,12 +63,13 @@ public final class CreateCurves implements MapAnnotations.Source {
     private final Method isTurnMethod;
     private final Method getTurnMethod;
     private final Field primaryField;
+    private final Method trackMaterialMethod;
     private final Method edgeLengthMethod;
     private final Method edgePositionMethod;
 
     private CreateCurves(Object railways, Field graphsField, Method nodesMethod, Method locateNodeMethod,
         Method connectionsFromMethod, Method locationDimensionMethod, Method isTurnMethod, Method getTurnMethod,
-        Field primaryField, Method edgeLengthMethod, Method edgePositionMethod) {
+        Field primaryField, Method trackMaterialMethod, Method edgeLengthMethod, Method edgePositionMethod) {
         this.railways = railways;
         this.graphsField = graphsField;
         this.nodesMethod = nodesMethod;
@@ -64,6 +79,7 @@ public final class CreateCurves implements MapAnnotations.Source {
         this.isTurnMethod = isTurnMethod;
         this.getTurnMethod = getTurnMethod;
         this.primaryField = primaryField;
+        this.trackMaterialMethod = trackMaterialMethod;
         this.edgeLengthMethod = edgeLengthMethod;
         this.edgePositionMethod = edgePositionMethod;
     }
@@ -87,6 +103,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                 edge.getMethod("isTurn"),
                 edge.getMethod("getTurn"),
                 bezier.getField("primary"),
+                edge.getMethod("getTrackMaterial"),
                 edge.getMethod("getLength"),
                 edge.getMethod("getPosition", graph, double.class)));
                     Diorama.LOGGER.info("[Diorama] Create curved-track provider registered");
@@ -102,7 +119,14 @@ public final class CreateCurves implements MapAnnotations.Source {
         if (minecraft.level == null) {
             this.world = null;
             this.segments = Map.of();
+            this.materialColours.clear();
             return;
+        }
+        BlockLooks looks = BlockLooks.get();
+        if (this.lastLooks != looks) {
+            this.lastLooks = looks;
+            this.materialColours.clear();
+            this.ticks = 0;
         }
         if (this.world != minecraft.level) {
             this.world = minecraft.level;
@@ -142,6 +166,15 @@ public final class CreateCurves implements MapAnnotations.Source {
                         if (turn == null || !this.primaryField.getBoolean(turn)) {
                             continue;
                         }
+                        Object material = this.trackMaterialMethod.invoke(edge);
+                        Palette palette = this.materialColours.get(material);
+                        if (palette == null) {
+                            palette = paletteFor(material, looks);
+                            this.materialColours.put(material, palette);
+                        }
+                        if (palette.invisible()) {
+                            continue;
+                        }
                         String dimension = dimensionName(this.locationDimensionMethod.invoke(location));
                         double length = ((Number) this.edgeLengthMethod.invoke(edge)).doubleValue();
                         int count = Math.max(6, Math.min(MAX_SAMPLES_PER_EDGE, (int) Math.ceil(length / 2.0)));
@@ -149,7 +182,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                         Vec3 previous = (Vec3) this.edgePositionMethod.invoke(edge, graph, 0.0);
                         for (int i = 1; i <= count; i++) {
                             Vec3 current = (Vec3) this.edgePositionMethod.invoke(edge, graph, i / (double) count);
-                            list.add(new Segment(previous, current));
+                            list.add(new Segment(previous, current, palette));
                             previous = current;
                         }
                     }
@@ -159,6 +192,77 @@ public final class CreateCurves implements MapAnnotations.Source {
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Unable to read Create's synchronized railway graph", exception);
         }
+    }
+
+    /**
+     * The track graph sends the same material on straight and Bezier edges. Steam 'n' Rails
+     * registers wood-specific sleeper ingredients, so we sample their *actual block textures*
+     * through Diorama's BlockLooks table instead of assigning arbitrary oak/spruce colours.
+     * This also respects resource packs and works with other add-ons' registered materials.
+     */
+    private static Palette paletteFor(Object material, BlockLooks looks) throws ReflectiveOperationException {
+        if (material == null) {
+            return new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false);
+        }
+        Object id = material.getClass().getField("id").get(material);
+        String name = String.valueOf(id);
+        if (name.contains("phantom")) {
+            return new Palette(0, 0, 1, false, true);
+        }
+
+        Object type = material.getClass().getField("trackType").get(material);
+        String gaugeType = String.valueOf(type.getClass().getField("id").get(type));
+        boolean monorail = gaugeType.endsWith(":monorail");
+        float gauge = gaugeType.endsWith(":wide_gauge") ? 1.5f
+            : gaugeType.endsWith(":narrow_gauge") ? 0.72f : 1f;
+
+        int sleeper = 0;
+        if (looks != null) {
+            Object sleeperIngredient = material.getClass().getField("sleeperIngredient").get(material);
+            if (sleeperIngredient instanceof Ingredient ingredient) {
+                sleeper = colourFromIngredient(looks, ingredient);
+            }
+            // Exotic track materials (monorail, bamboo, andesite) may have no block
+            // sleeper; use their own rendered track-block palette in that case.
+            if (sleeper == 0 && material.getClass().getMethod("getBlock").invoke(material) instanceof Block block) {
+                sleeper = colourOf(looks, block);
+            }
+        }
+        if (sleeper == 0) {
+            sleeper = DEFAULT_SLEEPER;
+        }
+        int rail = STEEL_RAIL;
+        Object railIngredient = material.getClass().getField("railsIngredient").get(material);
+        if (railIngredient instanceof Ingredient ingredient) {
+            if (ingredient.test(new ItemStack(Items.GOLD_NUGGET))) {
+                rail = GOLD_RAIL;
+            } else if (looks != null) {
+                int fromBlock = colourFromIngredient(looks, ingredient);
+                if (fromBlock != 0) {
+                    rail = fromBlock;
+                }
+            }
+        }
+        return new Palette(0xEF000000 | sleeper & 0xFFFFFF, 0xF5000000 | rail & 0xFFFFFF,
+            gauge, monorail, false);
+    }
+
+    private static int colourFromIngredient(BlockLooks looks, Ingredient ingredient) {
+        for (ItemStack stack : ingredient.getItems()) {
+            if (stack.getItem() instanceof BlockItem blockItem) {
+                int colour = colourOf(looks, blockItem.getBlock());
+                if (colour != 0) {
+                    return colour;
+                }
+            }
+        }
+        return 0;
+    }
+
+    private static int colourOf(BlockLooks looks, Block block) {
+        int index = looks.lookId(block.defaultBlockState());
+        int colour = looks.top[index];
+        return colour != 0 ? colour : looks.topTinted[index];
     }
 
     private static String dimensionName(Object key) throws ReflectiveOperationException {
@@ -180,84 +284,100 @@ public final class CreateCurves implements MapAnnotations.Source {
         }
         Circle circle = view.round() ? Circle.in(view) : null;
         MapCanvas canvas = MapCanvas.of(graphics);
-        // Fullscreen lines are batched into two GPU draws, even for thousands of segments.
-        // Circular minimaps use the exact circle clip for each segment instead.
+        // Draw a wood/stone sleeper body and the two rails. Using the material on each
+        // individual edge allows differently coloured curves to join without hard-coded
+        // Steam 'n' Rails material names.
         int budget = Math.min(lines.size(), MAX_RENDER_SEGMENTS);
-        float[] darkVertices = circle == null ? new float[budget * 12] : null;
-        float[] railVertices = circle == null ? new float[budget * 12] : null;
-        int[] darkColors = circle == null ? new int[budget] : null;
-        int[] railColors = circle == null ? new int[budget] : null;
+        float[] sleeperVertices = circle == null ? new float[budget * 12] : null;
+        float[] leftVertices = circle == null ? new float[budget * 12] : null;
+        float[] rightVertices = circle == null ? new float[budget * 12] : null;
+        int[] sleeperColours = circle == null ? new int[budget] : null;
+        int[] railColours = circle == null ? new int[budget] : null;
         graphics.enableScissor(view.x(), view.y(), view.x() + view.width(), view.y() + view.height());
-        int shown = 0;
         int drawn = 0;
         for (Segment line : lines) {
             float x0 = view.screenX(Projection.u(line.from.x, line.from.z));
             float y0 = view.screenY(Projection.v(line.from.x, line.from.y, line.from.z));
             float x1 = view.screenX(Projection.u(line.to.x, line.to.z));
             float y1 = view.screenY(Projection.v(line.to.x, line.to.y, line.to.z));
-            if (Math.max(x0, x1) < view.x() - 3 || Math.min(x0, x1) > view.x() + view.width() + 3
-                || Math.max(y0, y1) < view.y() - 3 || Math.min(y0, y1) > view.y() + view.height() + 3) {
+            if (Math.max(x0, x1) < view.x() - 5 || Math.min(x0, x1) > view.x() + view.width() + 5
+                || Math.max(y0, y1) < view.y() - 5 || Math.min(y0, y1) > view.y() + view.height() + 5) {
                 continue;
             }
-            if (++shown > MAX_RENDER_SEGMENTS) {
+            if (drawn >= MAX_RENDER_SEGMENTS) {
                 break;
             }
-            float width = (float) Math.max(1.1, Math.min(4, view.zoom() * 1.5));
+            Palette material = line.palette();
+            float width = (float) Math.max(1.8, Math.min(12, view.zoom() * 2.5 * material.gauge()));
+            float railWidth = Math.max(0.55f, width * 0.16f);
+            float offset = material.monorail() ? 0 : width * 0.30f;
             if (circle != null) {
-                stroke(canvas, circle, x0, y0, x1, y1, width + 0.9f, DARK);
-                stroke(canvas, circle, x0, y0, x1, y1, width * 0.55f, RAIL);
+                stroke(canvas, circle, x0, y0, x1, y1, width, material.sleeper(), 0);
+                stroke(canvas, circle, x0, y0, x1, y1, railWidth, material.metal(), -offset);
+                if (!material.monorail()) {
+                    stroke(canvas, circle, x0, y0, x1, y1, railWidth, material.metal(), offset);
+                }
             } else {
-                float[] darkQuad = vertices(x0, y0, x1, y1, width + 0.9f);
-                float[] railQuad = vertices(x0, y0, x1, y1, width * 0.55f);
-                if (darkQuad == null || railQuad == null) {
+                float[] sleeper = vertices(x0, y0, x1, y1, width, 0);
+                float[] left = vertices(x0, y0, x1, y1, railWidth, -offset);
+                float[] right = material.monorail() ? null : vertices(x0, y0, x1, y1, railWidth, offset);
+                if (sleeper == null || left == null) {
                     continue;
                 }
-                System.arraycopy(darkQuad, 0, darkVertices, drawn * 12, 12);
-                System.arraycopy(railQuad, 0, railVertices, drawn * 12, 12);
-                darkColors[drawn] = DARK;
-                railColors[drawn] = RAIL;
+                System.arraycopy(sleeper, 0, sleeperVertices, drawn * 12, 12);
+                System.arraycopy(left, 0, leftVertices, drawn * 12, 12);
+                if (right != null) {
+                    System.arraycopy(right, 0, rightVertices, drawn * 12, 12);
+                } else {
+                    System.arraycopy(left, 0, rightVertices, drawn * 12, 12);
+                }
+                sleeperColours[drawn] = material.sleeper();
+                railColours[drawn] = material.metal();
                 drawn++;
             }
         }
         if (drawn > 0) {
-            canvas.solids(darkVertices, darkColors, drawn);
-            canvas.solids(railVertices, railColors, drawn);
+            canvas.solids(sleeperVertices, sleeperColours, drawn);
+            canvas.solids(leftVertices, railColours, drawn);
+            canvas.solids(rightVertices, railColours, drawn);
         }
         graphics.disableScissor();
     }
 
-    private static float[] vertices(float x0, float y0, float x1, float y1, float width) {
+    /** Quad centered at an offset across the rail, so two rails share a sleeper body. */
+    private static float[] vertices(float x0, float y0, float x1, float y1, float width, float offset) {
         float dx = x1 - x0;
         float dy = y1 - y0;
         float length = (float) Math.hypot(dx, dy);
         if (length < 0.0001f) {
             return null;
         }
-        float nx = -dy / length * width / 2;
-        float ny = dx / length * width / 2;
+        float nx = -dy / length;
+        float ny = dx / length;
+        float a = offset + width / 2;
+        float b = offset - width / 2;
         return new float[] {
-            x0 + nx, y0 + ny, 0, x0 - nx, y0 - ny, 0,
-            x1 - nx, y1 - ny, 0, x1 + nx, y1 + ny, 0
+            x0 + nx * a, y0 + ny * a, 0,
+            x0 + nx * b, y0 + ny * b, 0,
+            x1 + nx * b, y1 + ny * b, 0,
+            x1 + nx * a, y1 + ny * a, 0
         };
     }
 
-    private static void stroke(MapCanvas canvas, Circle circle, float x0, float y0, float x1, float y1, float width, int color) {
-        float dx = x1 - x0;
-        float dy = y1 - y0;
-        float length = (float) Math.hypot(dx, dy);
-        if (length < 0.0001f) {
+    private static void stroke(MapCanvas canvas, Circle circle, float x0, float y0, float x1, float y1,
+        float width, int colour, float offset) {
+        float[] quad = vertices(x0, y0, x1, y1, width, offset);
+        if (quad == null) {
             return;
         }
-        float nx = -dy / length * width / 2;
-        float ny = dx / length * width / 2;
-        float[] corners = {x0 + nx, y0 + ny, x0 - nx, y0 - ny, x1 - nx, y1 - ny, x1 + nx, y1 + ny};
-        if (circle == null) {
-            canvas.solid(corners, color);
-        } else {
-            float[] clipped = circle.clip(corners, 4);
-            if (clipped != null) {
-                canvas.solid(clipped, color);
-            }
+        float[] flat = {
+            quad[0], quad[1], quad[3], quad[4],
+            quad[6], quad[7], quad[9], quad[10]
+        };
+        float[] clipped = circle.clip(flat, 4);
+        if (clipped != null) {
+            canvas.solid(clipped, colour);
         }
     }
+
 }
