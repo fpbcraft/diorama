@@ -137,7 +137,7 @@ public final class WaypointOverlay {
 			if (pin.waypoint().kind == Waypoint.Kind.LIVE) {
 				double distance = Math.hypot(pin.x() - mouseX, pin.y() - mouseY);
 				if (distance < Pins.reach(pin.waypoint(), (int) pin.size()) * pin.scale()
-					&& distance < bestDistance) {
+					&& distance <= bestDistance) {
 					best = pin;
 					bestDistance = distance;
 				}
