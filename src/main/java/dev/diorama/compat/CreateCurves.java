@@ -375,6 +375,15 @@ public final class CreateCurves implements MapAnnotations.Source {
         }
     }
 
+    /**
+     * Draw the actual curved-track layout: discrete transverse ties at Create's half-block
+     * spacing plus separate left/right steel rails. A Steam 'n' Rails partial-model sprite
+     * textures each section when available. The block atlas is batched into a few GUI draws.
+     *
+     * Unlike the previous screen-space ribbon, widths are measured in world units using
+     * the Bezier tangent and surface normal. Banking, map angle and gauge therefore stay
+     * consistent as the map rotates or zooms.
+     */
     @Override
     public void draw(GuiGraphicsExtractor graphics, MapViewport.View view, String dimension, boolean fullscreen) {
         if (!Settings.get().showCreateCurves || view.layer() != TileKey.SURFACE || view.zoom() < 0.22) {
@@ -384,101 +393,166 @@ public final class CreateCurves implements MapAnnotations.Source {
         if (lines == null || lines.isEmpty()) {
             return;
         }
-        Circle circle = view.round() ? Circle.in(view) : null;
-        MapCanvas canvas = MapCanvas.of(graphics);
-        // Draw a wood/stone sleeper body and the two rails. Using the material on each
-        // individual edge allows differently coloured curves to join without hard-coded
-        // Steam 'n' Rails material names.
         int budget = Math.min(lines.size(), MAX_RENDER_SEGMENTS);
-        float[] sleeperVertices = circle == null ? new float[budget * 12] : null;
-        float[] leftVertices = circle == null ? new float[budget * 12] : null;
-        float[] rightVertices = circle == null ? new float[budget * 12] : null;
-        int[] sleeperColours = circle == null ? new int[budget] : null;
-        int[] railColours = circle == null ? new int[budget] : null;
+        MapCanvas canvas = MapCanvas.of(graphics);
+        Circle circle = view.round() ? Circle.in(view) : null;
+        QuadBatch ties = new QuadBatch(budget);
+        QuadBatch railBeds = new QuadBatch(budget * 2);
+        QuadBatch rails = new QuadBatch(budget * 2);
         graphics.enableScissor(view.x(), view.y(), view.x() + view.width(), view.y() + view.height());
         int drawn = 0;
         for (Segment line : lines) {
-            float x0 = view.screenX(Projection.u(line.from.x, line.from.z));
-            float y0 = view.screenY(Projection.v(line.from.x, line.from.y, line.from.z));
-            float x1 = view.screenX(Projection.u(line.to.x, line.to.z));
-            float y1 = view.screenY(Projection.v(line.to.x, line.to.y, line.to.z));
-            if (Math.max(x0, x1) < view.x() - 5 || Math.min(x0, x1) > view.x() + view.width() + 5
-                || Math.max(y0, y1) < view.y() - 5 || Math.min(y0, y1) > view.y() + view.height() + 5) {
-                continue;
+            if (drawn >= MAX_RENDER_SEGMENTS) break;
+            Palette p = line.palette();
+            double gauge = p.gauge();
+            Vec3 from = line.from();
+            Vec3 to = line.to();
+            Vec3 transverse = line.across();
+            Vec3 diff = to.subtract(from);
+            if (diff.lengthSqr() < 1e-7) continue;
+
+            // A separate tie for each of Create's native Bezier sections. It is recessed
+            // below the rail heads just as its partial model is in TrackRenderer.
+            Vec3 middle = from.add(to).scale(.5).add(0, -.125, 0);
+            Vec3 acrossTie = transverse.scale(1.25 * gauge);
+            Vec3 halfLength = diff.normalize().scale(Math.min(.17, diff.length() * .33));
+            Vec3[] tie = {
+                middle.subtract(halfLength).add(acrossTie),
+                middle.subtract(halfLength).subtract(acrossTie),
+                middle.add(halfLength).subtract(acrossTie),
+                middle.add(halfLength).add(acrossTie)
+            };
+
+            // First screen-cull the tie (which bounds this short rail section).
+            float[] tieQuad = projected(view, tie);
+            if (!onScreen(view, tieQuad, 7)) continue;
+            append(canvas, circle, ties, tieQuad, p.tieSprite(), p.sleeper());
+
+            // Sleeper gaps now reveal terrain, unlike the old solid wooden ribbon.
+            // The rails follow the exact Bezier in world space; two slim overlapping
+            // quads suggest the dark rail side and the material's brighter upper face.
+            double offset = .965 * gauge;
+            double railWidth = .18 * gauge;
+            for (int side = -1; side <= 1; side += 2) {
+                if (p.monorail() && side == 1) continue;
+                double shift = p.monorail() ? 0 : offset * side;
+                float[] bedQuad = projected(view, strip(from, to, transverse, shift, railWidth + .065 * gauge));
+                append(canvas, circle, railBeds, bedQuad, null, 0xDB343537);
+                Vec3 lift = new Vec3(0, .045, 0);
+                float[] railQuad = projected(view,
+                    strip(from.add(lift), to.add(lift), transverse, shift, railWidth));
+                append(canvas, circle, rails, railQuad, p.railSprite(), p.metal());
             }
-            if (drawn >= MAX_RENDER_SEGMENTS) {
-                break;
-            }
-            Palette material = line.palette();
-            float width = (float) Math.max(1.8, Math.min(12, view.zoom() * 2.5 * material.gauge()));
-            float railWidth = Math.max(0.55f, width * 0.16f);
-            float offset = material.monorail() ? 0 : width * 0.30f;
-            if (circle != null) {
-                stroke(canvas, circle, x0, y0, x1, y1, width, material.sleeper(), 0);
-                stroke(canvas, circle, x0, y0, x1, y1, railWidth, material.metal(), -offset);
-                if (!material.monorail()) {
-                    stroke(canvas, circle, x0, y0, x1, y1, railWidth, material.metal(), offset);
-                }
-            } else {
-                float[] sleeper = vertices(x0, y0, x1, y1, width, 0);
-                float[] left = vertices(x0, y0, x1, y1, railWidth, -offset);
-                float[] right = material.monorail() ? null : vertices(x0, y0, x1, y1, railWidth, offset);
-                if (sleeper == null || left == null) {
-                    continue;
-                }
-                System.arraycopy(sleeper, 0, sleeperVertices, drawn * 12, 12);
-                System.arraycopy(left, 0, leftVertices, drawn * 12, 12);
-                if (right != null) {
-                    System.arraycopy(right, 0, rightVertices, drawn * 12, 12);
-                } else {
-                    System.arraycopy(left, 0, rightVertices, drawn * 12, 12);
-                }
-                sleeperColours[drawn] = material.sleeper();
-                railColours[drawn] = material.metal();
-                drawn++;
-            }
+            drawn++;
         }
-        if (drawn > 0) {
-            canvas.solids(sleeperVertices, sleeperColours, drawn);
-            canvas.solids(leftVertices, railColours, drawn);
-            canvas.solids(rightVertices, railColours, drawn);
-        }
+        // Tie texture is shown under the rails; all textures sample the resource-pack
+        // block atlas directly without creating or reloading extra GPU textures.
+        ties.flush(canvas);
+        railBeds.flush(canvas);
+        rails.flush(canvas);
         graphics.disableScissor();
     }
 
-    /** Quad centered at an offset across the rail, so two rails share a sleeper body. */
-    private static float[] vertices(float x0, float y0, float x1, float y1, float width, float offset) {
-        float dx = x1 - x0;
-        float dy = y1 - y0;
-        float length = (float) Math.hypot(dx, dy);
-        if (length < 0.0001f) {
-            return null;
-        }
-        float nx = -dy / length;
-        float ny = dx / length;
-        float a = offset + width / 2;
-        float b = offset - width / 2;
-        return new float[] {
-            x0 + nx * a, y0 + ny * a, 0,
-            x0 + nx * b, y0 + ny * b, 0,
-            x1 + nx * b, y1 + ny * b, 0,
-            x1 + nx * a, y1 + ny * a, 0
-        };
+    private static Vec3[] strip(Vec3 a, Vec3 b, Vec3 cross, double offset, double width) {
+        Vec3 outer = cross.scale(offset + width / 2);
+        Vec3 inner = cross.scale(offset - width / 2);
+        return new Vec3[] {a.add(outer), a.add(inner), b.add(inner), b.add(outer)};
     }
 
-    private static void stroke(MapCanvas canvas, Circle circle, float x0, float y0, float x1, float y1,
-        float width, int colour, float offset) {
-        float[] quad = vertices(x0, y0, x1, y1, width, offset);
-        if (quad == null) {
-            return;
+    private static float[] projected(MapViewport.View view, Vec3[] quad) {
+        float[] out = new float[8];
+        for (int i = 0; i < 4; i++) {
+            Vec3 pos = quad[i];
+            out[2 * i] = view.screenX(Projection.u(pos.x, pos.z));
+            out[2 * i + 1] = view.screenY(Projection.v(pos.x, pos.y, pos.z));
         }
-        float[] flat = {
-            quad[0], quad[1], quad[3], quad[4],
-            quad[6], quad[7], quad[9], quad[10]
-        };
-        float[] clipped = circle.clip(flat, 4);
-        if (clipped != null) {
-            canvas.solid(clipped, colour);
+        return out;
+    }
+
+    private static boolean onScreen(MapViewport.View view, float[] points, int margin) {
+        float left = Float.POSITIVE_INFINITY;
+        float top = Float.POSITIVE_INFINITY;
+        float right = Float.NEGATIVE_INFINITY;
+        float bottom = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i < points.length; i += 2) {
+            left = Math.min(left, points[i]);
+            right = Math.max(right, points[i]);
+            top = Math.min(top, points[i + 1]);
+            bottom = Math.max(bottom, points[i + 1]);
+        }
+        return right >= view.x() - margin && left <= view.x() + view.width() + margin
+            && bottom >= view.y() - margin && top <= view.y() + view.height() + margin;
+    }
+
+    private static void append(MapCanvas canvas, Circle circle, QuadBatch batch, float[] quad,
+        TextureAtlasSprite sprite, int fallbackColour) {
+        if (circle != null) {
+            // Circular minimaps clip against their actual visible disc. A solid sampled
+            // material colour is used there because circle-clipping textured UVs requires
+            // interpolating extra vertices (and ties are usually sub-pixel at this scale).
+            float[] clipped = circle.clip(quad, 4);
+            if (clipped != null) canvas.solid(clipped, fallbackColour);
+        } else {
+            batch.add(quad, sprite, fallbackColour);
+        }
+    }
+
+    /** Two interleaved batches: actual atlas sprites when present, solid fallback otherwise. */
+    private static final class QuadBatch {
+        private final float[] texVertices;
+        private final float[] texUvs;
+        private final int[] texColours;
+        private final float[] flatVertices;
+        private final int[] flatColours;
+        private TextureAtlasSprite textureAtlas;
+        private int textures;
+        private int flats;
+
+        QuadBatch(int capacity) {
+            this.texVertices = new float[capacity * 12];
+            this.texUvs = new float[capacity * 8];
+            this.texColours = new int[capacity];
+            this.flatVertices = new float[capacity * 12];
+            this.flatColours = new int[capacity];
+        }
+
+        void add(float[] quad, TextureAtlasSprite sprite, int colour) {
+            if (sprite != null && (textureAtlas == null
+                || textureAtlas.atlasLocation().equals(sprite.atlasLocation()))) {
+                if (textureAtlas == null) textureAtlas = sprite;
+                int index = textures++;
+                positions(quad, texVertices, index);
+                int u = index * 8;
+                texUvs[u] = sprite.getU0();
+                texUvs[u + 1] = sprite.getV0();
+                texUvs[u + 2] = sprite.getU0();
+                texUvs[u + 3] = sprite.getV1();
+                texUvs[u + 4] = sprite.getU1();
+                texUvs[u + 5] = sprite.getV1();
+                texUvs[u + 6] = sprite.getU1();
+                texUvs[u + 7] = sprite.getV0();
+                texColours[index] = 0xFFFFFFFF;
+            } else {
+                int index = flats++;
+                positions(quad, flatVertices, index);
+                flatColours[index] = colour;
+            }
+        }
+
+        void flush(MapCanvas canvas) {
+            if (flats > 0) canvas.solids(flatVertices, flatColours, flats);
+            if (textures > 0 && textureAtlas != null) {
+                canvas.blits(textureAtlas.atlasLocation(), texVertices, texUvs, texColours, textures);
+            }
+        }
+
+        private static void positions(float[] xy, float[] xyz, int index) {
+            int offset = index * 12;
+            for (int i = 0; i < 4; i++) {
+                xyz[offset + 3 * i] = xy[2 * i];
+                xyz[offset + 3 * i + 1] = xy[2 * i + 1];
+                xyz[offset + 3 * i + 2] = 0;
+            }
         }
     }
 
