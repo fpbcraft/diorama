@@ -701,7 +701,7 @@ public final class MapScreen extends Screen {
 		this.claimsButton.setMessage(claimsToggleLabel());
 	}
 
-	private static Component claimsToggleLabel() {
+	private static net.minecraft.network.chat.MutableComponent claimsToggleLabel() {
 		return Component.translatable(Settings.get().claims == Settings.ClaimsShown.OFF
 			? "diorama.map.claims_off" : "diorama.map.claims_on");
 	}
