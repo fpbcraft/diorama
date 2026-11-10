@@ -29,6 +29,8 @@ import org.joml.Vector3dc;
  */
 final class SableCrafts implements Crafts.Source {
     private static boolean failed;
+    private static boolean warnedPose;
+    private static boolean warnedBlocks;
 
     @Override
     public List<Body> bodies(ClientLevel level) {
@@ -125,8 +127,11 @@ final class SableCrafts implements Crafts.Source {
                 return new Blocks(new CraftBlocks(dx, dy, dz, states, new Int2IntOpenHashMap()),
                     new int[] {x0, y0, z0});
             } catch (ReflectiveOperationException | RuntimeException exception) {
-                org.slf4j.LoggerFactory.getLogger("fpbcraftdiorama")
-                    .warn("Unable to read Sable sub-level blocks {}", id, exception);
+                if (!warnedBlocks) {
+                    warnedBlocks = true;
+                    org.slf4j.LoggerFactory.getLogger("fpbcraftdiorama")
+                        .warn("Unable to read Sable sub-level blocks {}", id, exception);
+                }
                 return null;
             }
         }
@@ -158,6 +163,11 @@ final class SableCrafts implements Crafts.Source {
                 out[11] = z.z;
                 return true;
             } catch (ReflectiveOperationException | ClassCastException | LinkageError exception) {
+                if (!warnedPose) {
+                    warnedPose = true;
+                    org.slf4j.LoggerFactory.getLogger("fpbcraftdiorama")
+                        .warn("Unable to transform Sable sub-level {} onto Diorama's map", id, exception);
+                }
                 return false;
             }
         }
