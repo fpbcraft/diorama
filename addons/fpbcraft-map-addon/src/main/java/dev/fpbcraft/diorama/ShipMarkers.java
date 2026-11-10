@@ -25,6 +25,11 @@ final class ShipMarkers implements MapAnnotations.Source {
             dimension = "";
             return;
         }
+        if (!Settings.get().showSableShipMarkers) {
+            known = List.of();
+            untilRefresh = 0;
+            return;
+        }
         if (--untilRefresh > 0) {
             return;
         }
