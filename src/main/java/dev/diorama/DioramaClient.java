@@ -3,6 +3,7 @@ package dev.diorama;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.diorama.api.MapAnnotations;
 import dev.diorama.compat.Contraptions;
+import dev.diorama.compat.CreateCurves;
 import dev.diorama.craft.Crafts;
 //? if >=1.21.6 {
 import dev.diorama.render.DioramaPipelines;
@@ -60,6 +61,8 @@ public final class DioramaClient {
 		}
 	}
 
+	private static boolean createCurvesStarted;
+
 	/** Called once, from the loader's entrypoint. */
 	public static void init() {
 		Crafts.register(Contraptions::bodies);
@@ -81,6 +84,10 @@ public final class DioramaClient {
 		MapSession.tick(mc);
 		Waypoints.watchSleep(mc);
 		Claims.tick(mc);
+		if (!createCurvesStarted && mc.level != null) {
+			createCurvesStarted = true;
+			CreateCurves.start();
+		}
 		MapAnnotations.tick(mc);
 		XaeroNotice.tick(mc);
 		while (OPEN_MAP.consumeClick()) {
