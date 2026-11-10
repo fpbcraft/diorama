@@ -59,8 +59,11 @@ Diorama jar, rather than bundling Diorama or resolving an older jar. It targets 
 - Compact icon badges replace the always-on labels for live markers. Full details appear
   on hover. Separate toggles under Diorama Settings > Overlays control each integration;
   ships render as blocks by default, not as name pins.
-- Dynamic curved-track geometry is currently implemented as a reference provider in Diorama
-  PR #2, and should migrate into this add-on after its performance and fog masking are validated.
+- Create's Bezier curves are rendered by the core map extension (PR #2) with **discrete ties
+  at Create's segment count**, separate correctly spaced rails and material-specific model
+  sprites when available. This avoids the prior flat, continuous wooden/metal ribbon.
+  The result is a map-optimized reconstruction, not full Flywheel 3D model rasterization.
+  Curves should eventually migrate into the standalone add-on with terrain/fog masking.
 - Individual marker groups can be enabled/disabled via Settings > Overlays; full clustering
   and request-detail screens remain to be implemented. The existing global Diorama
   waypoint setting also controls whether any live pins appear.
