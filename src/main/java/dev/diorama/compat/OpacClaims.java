@@ -28,6 +28,7 @@ public final class OpacClaims {
 	private static boolean checked;
 	private static boolean installed;
 	private static boolean warned;
+	private static boolean broken;
 	private static Object api;
 	private static Object manager;
 	private static Object listener;
@@ -54,7 +55,7 @@ public final class OpacClaims {
 
 	/** True only after the current server's OPAC handshake; a client-only install is not enough. */
 	public static boolean available(Minecraft mc) {
-		if (mc.level == null || !installed()) {
+		if (mc.level == null || broken || !installed()) {
 			return false;
 		}
 		if (lastWorld == mc.level && manager != null) {
@@ -153,7 +154,8 @@ public final class OpacClaims {
 			if (!reload) {
 				Object dim = currentDimension(mc);
 				for (long packed : dirtyRegions) {
-					Object region = call(call(manager, "getDimension", dim), "getRegion", high(packed), low(packed));
+					Object dimensionClaims = call(manager, "getDimension", dim);
+					Object region = dimensionClaims == null ? null : call(dimensionClaims, "getRegion", high(packed), low(packed));
 					if (region != null) {
 						readRegion(mc.level.dimension(), dim, region);
 					} else {
@@ -272,6 +274,7 @@ public final class OpacClaims {
 	}
 
 	private static void warn(Throwable e) {
+		broken = true;
 		if (!warned) {
 			warned = true;
 			Diorama.LOGGER.warn("Could not access OPAC client claims; Diorama will fall back when possible", e);
