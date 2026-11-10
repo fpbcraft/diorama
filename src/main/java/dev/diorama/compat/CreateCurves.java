@@ -169,7 +169,12 @@ public final class CreateCurves implements MapAnnotations.Source {
                         Object material = this.trackMaterialMethod.invoke(edge);
                         Palette palette = this.materialColours.get(material);
                         if (palette == null) {
-                            palette = paletteFor(material, looks);
+                            try {
+                                palette = paletteFor(material, looks);
+                            } catch (ReflectiveOperationException | RuntimeException exception) {
+                                Diorama.LOGGER.warn("Could not read Create track material {}; using neutral rail palette", material, exception);
+                                palette = new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false);
+                            }
                             this.materialColours.put(material, palette);
                         }
                         if (palette.invisible()) {
