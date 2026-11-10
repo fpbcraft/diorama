@@ -70,7 +70,7 @@ public final class Claims {
 
 	/** Whether there's anything to read claims from, so settings about them are worth showing. */
 	public static boolean supported() {
-		return FtbChunks.available() || OpacClaims.available(Minecraft.getInstance());
+		return FtbChunks.available() || OpacClaims.installedOnClient();
 	}
 
 	/** Where a chunk's claim is kept in its region's array. */
