@@ -71,11 +71,12 @@ public final class CreateCurves implements MapAnnotations.Source {
     private final Method edgePositionMethod;
     private final Method edgeNormalMethod;
     private final Method turnSegmentCountMethod;
+    private final Method turnSegmentTimeMethod;
 
     private CreateCurves(Object railways, Field graphsField, Method nodesMethod, Method locateNodeMethod,
         Method connectionsFromMethod, Method locationDimensionMethod, Method isTurnMethod, Method getTurnMethod,
         Field primaryField, Method trackMaterialMethod, Method edgeLengthMethod, Method edgePositionMethod,
-        Method edgeNormalMethod, Method turnSegmentCountMethod) {
+        Method edgeNormalMethod, Method turnSegmentCountMethod, Method turnSegmentTimeMethod) {
         this.railways = railways;
         this.graphsField = graphsField;
         this.nodesMethod = nodesMethod;
@@ -90,6 +91,7 @@ public final class CreateCurves implements MapAnnotations.Source {
         this.edgePositionMethod = edgePositionMethod;
         this.edgeNormalMethod = edgeNormalMethod;
         this.turnSegmentCountMethod = turnSegmentCountMethod;
+        this.turnSegmentTimeMethod = turnSegmentTimeMethod;
     }
 
     /** Register only when Create's NeoForge client railway graph API is available. */
@@ -115,7 +117,8 @@ public final class CreateCurves implements MapAnnotations.Source {
                 edge.getMethod("getLength"),
                 edge.getMethod("getPosition", graph, double.class),
                 edge.getMethod("getNormal", graph, double.class),
-                bezier.getMethod("getSegmentCount")));
+                bezier.getMethod("getSegmentCount"),
+                bezier.getMethod("getSegmentT", int.class)));
                     Diorama.LOGGER.info("[Diorama] Create curved-track provider registered");
         } catch (ClassNotFoundException ignored) {
             // Create is not installed: no optional provider.
@@ -198,9 +201,13 @@ public final class CreateCurves implements MapAnnotations.Source {
                             ((Number) this.turnSegmentCountMethod.invoke(turn)).intValue()));
                         List<Segment> list = next.computeIfAbsent(dimension, ignored -> new ArrayList<>());
                         Vec3 previous = (Vec3) this.edgePositionMethod.invoke(edge, graph, 0.0);
+                        double previousT = 0;
                         for (int i = 1; i <= count; i++) {
-                            Vec3 current = (Vec3) this.edgePositionMethod.invoke(edge, graph, i / (double) count);
-                            Vec3 up = (Vec3) this.edgeNormalMethod.invoke(edge, graph, (i - .5) / count);
+                            // Create's own arc-length lookup places sleepers at near-equal
+                            // distances on tight bends; uniform i/count bunches them up.
+                            double t = ((Number) this.turnSegmentTimeMethod.invoke(turn, i)).doubleValue();
+                            Vec3 current = (Vec3) this.edgePositionMethod.invoke(edge, graph, t);
+                            Vec3 up = (Vec3) this.edgeNormalMethod.invoke(edge, graph, (previousT + t) * .5);
                             Vec3 tangent = current.subtract(previous);
                             Vec3 across = tangent.cross(up);
                             if (across.lengthSqr() < 1e-6) {
@@ -210,6 +217,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                                 list.add(new Segment(previous, current, across.normalize(), palette));
                             }
                             previous = current;
+                            previousT = t;
                         }
                     }
                 }
