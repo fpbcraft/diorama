@@ -596,9 +596,23 @@ public final class MapScreen extends Screen {
 		int statusX = this.tabsEnd + 8;
 		graphics.text(this.font, this.statusText(shown, viewer, caves, this.buttonsStart() - 2 - statusX), statusX, 4, 0xFFFFFFFF, false);
 		graphics.fill(0, this.height - BOTTOM_BAR, this.width, this.height, 0x90000000);
-		String help = this.claimSelecting
-			? "OPAC: " + (this.claimRemoving ? "Unclaim" : "Claim") + " area · Release to submit · Esc to cancel"
-			: (this.draw.active() ? this.draw.help() : HELP).getString();
+		String help;
+		if (this.claimSelecting) {
+			BlockPos current = this.roughSpot(this.claimEndX, this.claimEndY);
+			boolean tooFar = current != null && OpacClaims.outsideClaimDistance(this.minecraft,
+				current.getX() >> 4, current.getZ() >> 4);
+			help = tooFar ? "OPAC: Outside claimable range · Esc to cancel"
+				: "OPAC: " + (this.claimRemoving ? "Unclaim" : "Claim") + " area · Release to submit · Esc to cancel";
+		} else if (!this.draw.active() && this.otherDimension == null && DrawMode.shiftDown()
+			&& OpacClaims.available(this.minecraft)) {
+			BlockPos current = this.roughSpot(mouseX, mouseY);
+			boolean tooFar = current != null && OpacClaims.outsideClaimDistance(this.minecraft,
+				current.getX() >> 4, current.getZ() >> 4);
+			help = tooFar ? "OPAC: Outside claimable range"
+				: "OPAC: Shift+left drag to claim · Shift+right drag to unclaim · Esc cancels";
+		} else {
+			help = (this.draw.active() ? this.draw.help() : HELP).getString();
+		}
 		graphics.text(this.font, help, 6, this.height - 11, 0xFFC8D0DA, false);
 		this.drawMapName(graphics, 6 + this.font.width(help) + 12);
 		// Widgets (the buttons) draw over the map, then the icons on them.
