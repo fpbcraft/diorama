@@ -24,8 +24,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import net.minecraft.util.RandomSource;
 
 /**
  * Draws Create's Bezier track sections that have no corresponding block model in Diorama's
@@ -44,8 +42,7 @@ public final class CreateCurves implements MapAnnotations.Source {
     private static final int STEEL_RAIL = 0xFFD2D2D0;
     private static final int GOLD_RAIL = 0xFFEAC36B;
 
-    static record Palette(int sleeper, int metal, float gauge, boolean monorail, boolean invisible,
-        TextureAtlasSprite tieSprite, TextureAtlasSprite railSprite) {
+    static record Palette(int sleeper, int metal, float gauge, boolean monorail, boolean invisible) {
     }
 
     /** A strip of world-space curve with transverse normals, sampled at Create's tie spacing. */
@@ -194,7 +191,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                                 palette = paletteFor(material, looks);
                             } catch (ReflectiveOperationException | RuntimeException exception) {
                                 Diorama.LOGGER.warn("Could not read Create track material {}; using neutral rail palette", material, exception);
-                                palette = new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false, null, null);
+                                palette = new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false);
                             }
                             this.materialColours.put(material, palette);
                         }
@@ -250,12 +247,12 @@ public final class CreateCurves implements MapAnnotations.Source {
      */
     private static Palette paletteFor(Object material, BlockLooks looks) throws ReflectiveOperationException {
         if (material == null) {
-            return new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false, null, null);
+            return new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false);
         }
         Object id = material.getClass().getField("id").get(material);
         String name = String.valueOf(id);
         if (name.contains("phantom")) {
-            return new Palette(0, 0, 1, false, true, null, null);
+            return new Palette(0, 0, 1, false, true);
         }
 
         Object type = material.getClass().getField("trackType").get(material);
@@ -295,12 +292,8 @@ public final class CreateCurves implements MapAnnotations.Source {
                 }
             }
         }
-        TextureAtlasSprite ties = partialSprite(material, "tie");
-        if (ties == null && base != material) ties = partialSprite(base, "tie");
-        TextureAtlasSprite rails = partialSprite(material, "leftSegment");
-        if (rails == null && base != material) rails = partialSprite(base, "leftSegment");
         return new Palette(0xEF000000 | sleeper & 0xFFFFFF, 0xF5000000 | rail & 0xFFFFFF,
-            gauge, monorail, false, ties, rails);
+            gauge, monorail, false);
     }
 
     /**
@@ -337,64 +330,6 @@ public final class CreateCurves implements MapAnnotations.Source {
             }
         }
         return material;
-    }
-
-    /**
-     * Read a representative *actual texture sprite* from Create's partial models. The
-     * Steam 'n' Rails model holder supplies the wood tie and metal rail textures used
-     * by the in-world renderer; its wide/narrow variants may reuse a base material.
-     * This is optional: exotic renderers can fall back to BlockLooks colours.
-     */
-    private static TextureAtlasSprite partialSprite(Object material, String part) {
-        try {
-            Object holder = material.getClass().getMethod("getModelHolder").invoke(material);
-            if (holder == null) return null;
-            Object partial = holder.getClass().getMethod(part).invoke(holder);
-            if (partial == null) return null;
-            Object model = partial.getClass().getMethod("get").invoke(partial);
-            if (model == null) return null;
-            // Prefer the real top-face quads; particle textures can be misleading for
-            // complex Steam 'n' Rails track models. NeoForge may expose 3- or 5-argument
-            // BakedModel#getQuads, depending on the installed renderer.
-            for (Method method : model.getClass().getMethods()) {
-                if (!method.getName().equals("getQuads")) continue;
-                int parameters = method.getParameterCount();
-                if (parameters != 3 && parameters != 5) continue;
-                try {
-                    Object[] args = parameters == 3
-                        ? new Object[] {null, null, RandomSource.create(42L)}
-                        : new Object[] {null, null, RandomSource.create(42L),
-                            Class.forName("net.neoforged.neoforge.client.model.data.ModelData")
-                                .getField("EMPTY").get(null),
-                            Class.forName("net.minecraft.client.renderer.RenderType")
-                                .getMethod("cutoutMipped").invoke(null)};
-                    Object quads = method.invoke(model, args);
-                    if (quads instanceof Iterable<?> iterable) {
-                        for (Object quad : iterable) {
-                            Object sprite = quad.getClass().getMethod("getSprite").invoke(quad);
-                            if (sprite instanceof TextureAtlasSprite texture) return texture;
-                        }
-                    }
-                } catch (ReflectiveOperationException | RuntimeException ignored) {
-                    // Try another overload or particle sprite.
-                }
-            }
-            for (Method method : model.getClass().getMethods()) {
-                if (!method.getName().equals("getParticleIcon")) continue;
-                try {
-                    Object sprite = method.getParameterCount() == 0 ? method.invoke(model)
-                        : method.getParameterCount() == 1
-                        ? method.invoke(model, Class.forName("net.neoforged.neoforge.client.model.data.ModelData")
-                            .getField("EMPTY").get(null)) : null;
-                    if (sprite instanceof TextureAtlasSprite texture) return texture;
-                } catch (ReflectiveOperationException | RuntimeException ignored) {
-                    // Other modded partial-model variant.
-                }
-            }
-            return null;
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-            return null;
-        }
     }
 
     private static int colourFromIngredient(BlockLooks looks, Ingredient ingredient) {
