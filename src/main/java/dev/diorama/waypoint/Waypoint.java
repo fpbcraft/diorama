@@ -17,7 +17,8 @@ public final class Waypoint {
 		/** Added automatically where the player died. */
 		DEATH,
 		/** Set from the map's menu; never saved, so it's gone once the player leaves the world. */
-		TEMPORARY,
+				/** Supplied by an add-on each frame; never stored or edited by Diorama. */
+		LIVE,
 		/** A waystone the Waystones mod told the client about ({@link Waystones}). Never saved, and Waystones names it. */
 		WAYSTONE,
 		/** The bed the player last slept in, kept up to date: one per dimension. */
@@ -90,7 +91,7 @@ public final class Waypoint {
 
 	/** Whether the player can edit or delete it here: everything but waystones, which Waystones owns. */
 	public boolean editable() {
-		return this.kind != Kind.WAYSTONE;
+		return this.kind != Kind.WAYSTONE && this.kind != Kind.LIVE;
 	}
 
 	/** The saved name of a death pin made at {@code time}. */
