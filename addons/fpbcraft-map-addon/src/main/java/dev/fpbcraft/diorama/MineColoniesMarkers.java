@@ -1,6 +1,7 @@
 package dev.fpbcraft.diorama;
 
 import dev.diorama.api.MapAnnotations;
+import dev.diorama.Settings;
 import dev.diorama.waypoint.Waypoint;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -49,8 +50,8 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                 String prefix = "minecolonies:" + id + ":";
                 Object origin = ReflectSupport.call(colony, "getCenter");
                 if (origin instanceof BlockPos center) {
-                    next.add(ReflectSupport.marker(prefix + "center", "Colony: " + name,
-                        center, dimension, 0xFFF76B15, "MC"));
+                    next.add(icon(prefix + "center", "Colony: " + name,
+                        center, dimension, 0xFFF76B15, "MC", "diorama:villagers"));
                 }
 
                 Object buildingManager = ReflectSupport.call(colony, "getClientBuildingManager");
@@ -62,8 +63,8 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                         Object building = entry.getValue();
                         int level = ((Number) ReflectSupport.call(building, "getBuildingLevel")).intValue();
                         String buildingName = String.valueOf(ReflectSupport.call(building, "getBuildingDisplayName"));
-                        next.add(ReflectSupport.marker(prefix + "building:" + pos.asLong(),
-                            buildingName + " · level " + level, pos, dimension, 0xFF8D6B4B, "HUT"));
+                        next.add(icon(prefix + "building:" + pos.asLong(),
+                            buildingName + " · level " + level, pos, dimension, 0xFF8D6B4B, "HUT", "diorama:home"));
                     }
                 }
 
@@ -76,8 +77,8 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                         String description = ReflectSupport.text(ReflectSupport.call(order, "getDisplayName"));
                         Object target = ReflectSupport.call(order, "getTargetLevel");
                         String label = "Construction: " + description + " · level " + target;
-                        next.add(ReflectSupport.marker(prefix + "work:" + pos.asLong() + ":" + label,
-                            label, pos, dimension, 0xFFE5484D, "JOB"));
+                        next.add(icon(prefix + "work:" + pos.asLong() + ":" + label,
+                            label, pos, dimension, 0xFFE5484D, "JOB", "diorama:mine"));
                     }
                 }
 
@@ -115,8 +116,8 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                     List<String> needs = entry.getValue();
                     String label = needs.size() == 1 ? "Requested: " + needs.getFirst()
                         : needs.size() + " requests · " + needs.getFirst();
-                    next.add(ReflectSupport.marker(prefix + "request:" + entry.getKey().asLong(),
-                        label, entry.getKey(), dimension, 0xFFFFC53D, "REQ"));
+                    next.add(icon(prefix + "request:" + entry.getKey().asLong(),
+                        label, entry.getKey(), dimension, 0xFFFFC53D, "REQ", "diorama:storage"));
                 }
             }
             known = List.copyOf(next);
@@ -125,8 +126,28 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
         }
     }
 
+    private static Waypoint icon(String id, String name, BlockPos pos, String dimension,
+        int color, String kind, String icon) {
+        Waypoint marker = ReflectSupport.marker(id, name, pos, dimension, color, kind);
+        marker.icon = icon;
+        return marker;
+    }
+
     @Override
     public List<Waypoint> markers(String requestedDimension) {
-        return requestedDimension.equals(dimension) ? known : List.of();
+        if (!requestedDimension.equals(dimension)) return List.of();
+        Settings s = Settings.get();
+        List<Waypoint> shown = new ArrayList<>();
+        for (Waypoint pin : known) {
+            boolean visible = switch (pin.initials) {
+                case "MC" -> s.showColonyCenters;
+                case "HUT" -> s.showColonyBuildings;
+                case "JOB" -> s.showColonyConstruction;
+                case "REQ" -> s.showColonyRequests;
+                default -> false;
+            };
+            if (visible) shown.add(pin);
+        }
+        return shown;
     }
 }
