@@ -16,7 +16,6 @@ import dev.diorama.render.Circle;
 import dev.diorama.render.gpu.MapCanvas;
 import dev.diorama.render.gpu.MapTexture;
 import dev.diorama.render.gpu.Sampling;
-import java.lang.reflect.ReflectiveOperationException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -26,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.world.level.block.Block;
-import org.joml.Vector2d;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -238,7 +236,7 @@ final class CurveRaster {
                 tile.key.tv() * SIZE + tile.y0, tile.key.tu() * SIZE + tile.x1,
                 tile.key.tv() * SIZE + tile.y1);
         }
-        if (tile.texture != null && (surface == null ? tile.surface == null : surface.same(tile.surface))) {
+        if (tile.texture != null && (surface == null ? tile.surface == null : tile.surface != null && surface.same(tile.surface))) {
             return;
         }
         int[] output = tile.pixels.clone();
