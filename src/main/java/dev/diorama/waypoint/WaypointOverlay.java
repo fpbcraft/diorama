@@ -28,7 +28,8 @@ public final class WaypointOverlay {
 	public record Pin(Waypoint waypoint, float x, float y, float size, float scale, boolean clamped) {
 		/** Where the head is centred: above the spot for a standing pin. */
 		public float headY() {
-			return this.clamped ? this.y : this.y - Pins.headAbove(this.waypoint, (int) this.size) * this.scale;
+			return this.clamped || this.waypoint.kind == Waypoint.Kind.LIVE ? this.y
+                : this.y - Pins.headAbove(this.waypoint, (int) this.size) * this.scale;
 		}
 	}
 
@@ -57,6 +58,18 @@ public final class WaypointOverlay {
 			float y = view.screenY(Projection.v(waypoint.x + 0.5, waypoint.y, waypoint.z + 0.5));
 			float dx = x - cx;
 			float dy = y - cy;
+			// Live add-on pins are compact map icons, not destinations: do not clutter the
+			// edges with dozens of off-screen colony buildings, tasks or trains.
+			if (waypoint.kind == Waypoint.Kind.LIVE) {
+				float reach = Pins.reach(waypoint, size) * scale;
+				if (circle == null
+					? x >= view.x() + reach && y >= view.y() + reach
+						&& x <= view.x() + view.width() - reach && y <= view.y() + view.height() - reach
+					: Math.hypot(dx, dy) <= circle.r - reach) {
+					pins.add(new Pin(waypoint, x, y, size, scale, false));
+				}
+				continue;
+			}
 			if (circle != null) {
 				if (Pins.fitsStanding(waypoint, size, scale, x, y, circle)) {
 					pins.add(new Pin(waypoint, x, y, size, scale, false));
@@ -89,10 +102,19 @@ public final class WaypointOverlay {
 			if (pin.clamped()) {
 				Pins.edge(graphics, waypoint, pin.x(), pin.y(), s, Math.atan2(pin.y() - cy, pin.x() - cx), pin.scale());
 			} else {
-				Pins.standing(graphics, waypoint, pin.x(), pin.y(), s, pin.scale());
+				if (waypoint.kind == Waypoint.Kind.LIVE) {
+					// The icon itself is sufficient; hovering reveals the name/details.
+					graphics.pose().pushMatrix();
+					graphics.pose().translate(pin.x(), pin.y());
+					graphics.pose().scale(pin.scale());
+					Pins.badge(graphics, waypoint, 0, 0, Pins.SMALL);
+					graphics.pose().popMatrix();
+				} else {
+					Pins.standing(graphics, waypoint, pin.x(), pin.y(), s, pin.scale());
+				}
 			}
 			// Icons say what a place is, so their names wait for the cursor.
-			boolean named = pin == hovered || view.zoom() >= 2 && !Pins.showsIcon(waypoint);
+			boolean named = waypoint.kind != Waypoint.Kind.LIVE && (pin == hovered || view.zoom() >= 2 && !Pins.showsIcon(waypoint));
 			if (fullscreen && !pin.clamped() && named) {
 				String name = waypoint.shownName();
 				int w = font.width(name);
@@ -112,6 +134,15 @@ public final class WaypointOverlay {
 		for (Pin pin : pins) {
 			// A standing pin answers at its head and at the spot its point touches. A head widened for
 			// its initials answers along its middle line.
+			if (pin.waypoint().kind == Waypoint.Kind.LIVE) {
+				double distance = Math.hypot(pin.x() - mouseX, pin.y() - mouseY);
+				if (distance < Pins.reach(pin.waypoint(), (int) pin.size()) * pin.scale()
+					&& distance < bestDistance) {
+					best = pin;
+					bestDistance = distance;
+				}
+				continue;
+			}
 			double along = Math.max(0, Math.abs(pin.x() - mouseX) - Pins.stretch(pin.waypoint(), (int) pin.size()) * pin.scale() / 2.0);
 			double d = Math.hypot(along, pin.headY() - mouseY);
 			if (!pin.clamped()) {
