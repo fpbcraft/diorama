@@ -169,8 +169,10 @@ public final class Settings {
 	public boolean chunkGrid = false;
 	public boolean slimeChunks = false;
 	public SpawnSpots spawnSpots = SpawnSpots.OFF;
-	/** Where FTB Chunks' land claims show, when it's installed. */
+	/** Where FTB Chunks' and OPAC's land claims show, when available. */
 	public ClaimsShown claims = ClaimsShown.ALWAYS;
+	/** Last non-OFF preference, so the map's quick toggle preserves fullscreen-only vs minimap too. */
+	public ClaimsShown claimsWhenEnabled = ClaimsShown.ALWAYS;
 
 	/** Where land claims show: nowhere, on the fullscreen map, or on the minimap too. */
 	public enum ClaimsShown {
@@ -402,6 +404,9 @@ public final class Settings {
 		}
 		if (settings.claims == null) {
 			settings.claims = ClaimsShown.ALWAYS;
+		}
+		if (settings.claimsWhenEnabled == null || settings.claimsWhenEnabled == ClaimsShown.OFF) {
+			settings.claimsWhenEnabled = ClaimsShown.ALWAYS;
 		}
 		if (settings.drawings == null) {
 			settings.drawings = DrawingsShown.ALWAYS;
