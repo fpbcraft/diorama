@@ -1,6 +1,8 @@
 package dev.diorama.compat;
 
 import dev.diorama.Projection;
+import dev.diorama.Diorama;
+import dev.diorama.Settings;
 import dev.diorama.api.MapAnnotations;
 import dev.diorama.bake.TileKey;
 import dev.diorama.render.Circle;
@@ -46,13 +48,13 @@ public final class CreateCurves implements MapAnnotations.Source {
     private final Method locationDimensionMethod;
     private final Method isTurnMethod;
     private final Method getTurnMethod;
-    private final Method isPrimaryMethod;
+    private final Field primaryField;
     private final Method edgeLengthMethod;
     private final Method edgePositionMethod;
 
     private CreateCurves(Object railways, Field graphsField, Method nodesMethod, Method locateNodeMethod,
         Method connectionsFromMethod, Method locationDimensionMethod, Method isTurnMethod, Method getTurnMethod,
-        Method isPrimaryMethod, Method edgeLengthMethod, Method edgePositionMethod) {
+        Field primaryField, Method edgeLengthMethod, Method edgePositionMethod) {
         this.railways = railways;
         this.graphsField = graphsField;
         this.nodesMethod = nodesMethod;
@@ -61,7 +63,7 @@ public final class CreateCurves implements MapAnnotations.Source {
         this.locationDimensionMethod = locationDimensionMethod;
         this.isTurnMethod = isTurnMethod;
         this.getTurnMethod = getTurnMethod;
-        this.isPrimaryMethod = isPrimaryMethod;
+        this.primaryField = primaryField;
         this.edgeLengthMethod = edgeLengthMethod;
         this.edgePositionMethod = edgePositionMethod;
     }
@@ -84,13 +86,14 @@ public final class CreateCurves implements MapAnnotations.Source {
                 location.getMethod("getDimension"),
                 edge.getMethod("isTurn"),
                 edge.getMethod("getTurn"),
-                bezier.getMethod("isPrimary"),
+                bezier.getField("primary"),
                 edge.getMethod("getLength"),
                 edge.getMethod("getPosition", graph, double.class)));
+                    Diorama.LOGGER.info("[Diorama] Create curved-track provider registered");
         } catch (ClassNotFoundException ignored) {
-            // Create absent (or an older Create version): no adapter.
-        } catch (ReflectiveOperationException | LinkageError ignored) {
-            // Create variant without these public graph methods: remain an optional integration.
+            // Create is not installed: no optional provider.
+        } catch (ReflectiveOperationException | LinkageError exception) {
+            Diorama.LOGGER.warn("[Diorama] Could not register Create curved-track renderer", exception);
         }
     }
 
@@ -136,7 +139,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                             continue;
                         }
                         Object turn = this.getTurnMethod.invoke(edge);
-                        if (turn == null || !Boolean.TRUE.equals(this.isPrimaryMethod.invoke(turn))) {
+                        if (turn == null || !this.primaryField.getBoolean(turn)) {
                             continue;
                         }
                         String dimension = dimensionName(this.locationDimensionMethod.invoke(location));
@@ -168,7 +171,7 @@ public final class CreateCurves implements MapAnnotations.Source {
 
     @Override
     public void draw(GuiGraphicsExtractor graphics, MapViewport.View view, String dimension, boolean fullscreen) {
-        if (view.layer() != TileKey.SURFACE || view.zoom() < 0.22) {
+        if (!Settings.get().showCreateCurves || view.layer() != TileKey.SURFACE || view.zoom() < 0.22) {
             return;
         }
         List<Segment> lines = this.segments.get(dimension);
