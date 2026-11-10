@@ -5,6 +5,7 @@ import dev.diorama.bake.BlockLooks;
 import dev.diorama.bake.CraftBlocks;
 import dev.diorama.craft.Body;
 import dev.diorama.craft.Crafts;
+import dev.diorama.data.Copycats;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -93,6 +94,7 @@ final class SableCrafts implements Crafts.Source {
                 }
                 int dx = (int) sx, dy = (int) sy, dz = (int) sz;
                 int[] states = CraftBlocks.empty(dx, dy, dz);
+                Int2IntOpenHashMap copycats = new Int2IntOpenHashMap();
                 Object chunks = ReflectSupport.call(plot, "getLoadedChunks");
                 if (!(chunks instanceof Collection<?> loaded)) {
                     return null;
@@ -116,6 +118,12 @@ final class SableCrafts implements Crafts.Source {
                                 if (state.isAir()) continue;
                                 int index = CraftBlocks.index(dx, dz, x - x0, y - y0, z - z0);
                                 states[index] = Block.BLOCK_STATE_REGISTRY.getId(state);
+                                if (Copycats.INSTALLED && state.hasBlockEntity()) {
+                                    BlockState material = Copycats.material(chunk.getBlockEntity(pos));
+                                    if (material != null) {
+                                        copycats.put(index, Block.BLOCK_STATE_REGISTRY.getId(material));
+                                    }
+                                }
                                 nonAir++;
                             }
                         }
@@ -124,7 +132,7 @@ final class SableCrafts implements Crafts.Source {
                 if (nonAir == 0) {
                     return null;
                 }
-                return new Blocks(new CraftBlocks(dx, dy, dz, states, new Int2IntOpenHashMap()),
+                return new Blocks(new CraftBlocks(dx, dy, dz, states, copycats),
                     new int[] {x0, y0, z0});
             } catch (ReflectiveOperationException | RuntimeException exception) {
                 if (!warnedBlocks) {
