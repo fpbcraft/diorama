@@ -240,6 +240,11 @@ final class CurveRaster {
             return;
         }
         int[] output = tile.pixels.clone();
+        if (surface == null && map != null && map.fogOfWar()) {
+            // Never expose synced railway graph data outside known terrain. The
+            // asynchronous surface lookup will reveal these pixels once available.
+            Arrays.fill(output, 0);
+        }
         if (surface != null) {
             int originX = tile.key.tu() * SIZE;
             int originY = tile.key.tv() * SIZE;
