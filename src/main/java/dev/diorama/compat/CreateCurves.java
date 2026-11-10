@@ -221,9 +221,13 @@ public final class CreateCurves implements MapAnnotations.Source {
         float gauge = gaugeType.endsWith(":wide_gauge") ? 1.5f
             : gaugeType.endsWith(":narrow_gauge") ? 0.72f : 1f;
 
+        // Steam 'n' Rails' wide/narrow variants inherit models and particle textures
+        // from a base track, but their recipe ingredients may be empty. Use the base
+        // material for colours, preserving the actual gauge from this edge.
+        Object base = inheritedMaterial(material, name);
         int sleeper = 0;
         if (looks != null) {
-            Object sleeperIngredient = material.getClass().getField("sleeperIngredient").get(material);
+            Object sleeperIngredient = base.getClass().getField("sleeperIngredient").get(base);
             if (sleeperIngredient instanceof Ingredient ingredient) {
                 sleeper = colourFromIngredient(looks, ingredient);
             }
@@ -237,7 +241,7 @@ public final class CreateCurves implements MapAnnotations.Source {
             sleeper = DEFAULT_SLEEPER;
         }
         int rail = STEEL_RAIL;
-        Object railIngredient = material.getClass().getField("railsIngredient").get(material);
+        Object railIngredient = base.getClass().getField("railsIngredient").get(base);
         if (railIngredient instanceof Ingredient ingredient) {
             if (ingredient.test(new ItemStack(Items.GOLD_NUGGET))) {
                 rail = GOLD_RAIL;
@@ -250,6 +254,42 @@ public final class CreateCurves implements MapAnnotations.Source {
         }
         return new Palette(0xEF000000 | sleeper & 0xFFFFFF, 0xF5000000 | rail & 0xFFFFFF,
             gauge, monorail, false);
+    }
+
+    /**
+     * Railways' registered gauge variants can be railways:spruce_wide,
+     * railways:spruce_narrow or railways:create_andesite_wide. Their registered
+     * base material carries the sleeper/rail ingredients.
+     */
+    private static Object inheritedMaterial(Object material, String name) throws ReflectiveOperationException {
+        if (!name.endsWith("_wide") && !name.endsWith("_narrow")) {
+            return material;
+        }
+        int colon = name.indexOf(':');
+        if (colon <= 0) {
+            return material;
+        }
+        String namespace = name.substring(0, colon);
+        String path = name.substring(colon + 1);
+        String basePath = path.substring(0, path.lastIndexOf('_'));
+        String standard = namespace + ":" + basePath;
+        String fromOtherNamespace = "";
+        int firstUnderscore = basePath.indexOf('_');
+        if (firstUnderscore > 0) {
+            fromOtherNamespace = basePath.substring(0, firstUnderscore) + ":"
+                + basePath.substring(firstUnderscore + 1);
+        }
+
+        Object registered = material.getClass().getField("ALL").get(null);
+        if (registered instanceof Map<?, ?> materials) {
+            for (Object candidate : materials.values()) {
+                String key = String.valueOf(candidate.getClass().getField("id").get(candidate));
+                if (key.equals(standard) || key.equals(fromOtherNamespace)) {
+                    return candidate;
+                }
+            }
+        }
+        return material;
     }
 
     private static int colourFromIngredient(BlockLooks looks, Ingredient ingredient) {
