@@ -231,7 +231,7 @@ public final class MapScreen extends Screen {
 			this.minecraft.gui.setScreen(new SettingsScreen(this))).size(64, BAR).build());
 		this.settingsButton.visible = settings.mapSettingsButton;
 		this.claimsButton = this.addRenderableWidget(Button.builder(claimsToggleLabel(), b -> this.toggleClaims())
-			.size(75, BAR).createNarration(n -> claimsToggleLabel()).build());
+			.size(66, BAR).createNarration(n -> claimsToggleLabel()).build());
 		this.claimsButton.visible = Claims.supported();
 		int right = this.width;
 		for (Button button : List.of(this.settingsButton, this.waypointsButton, this.mapsButton, this.claimsButton)) {
