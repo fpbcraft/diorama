@@ -177,8 +177,16 @@ public final class CreateCurves implements MapAnnotations.Source {
         }
         Circle circle = view.round() ? Circle.in(view) : null;
         MapCanvas canvas = MapCanvas.of(graphics);
+        // Fullscreen lines are batched into two GPU draws, even for thousands of segments.
+        // Circular minimaps use the exact circle clip for each segment instead.
+        int budget = Math.min(lines.size(), MAX_RENDER_SEGMENTS);
+        float[] darkVertices = circle == null ? new float[budget * 12] : null;
+        float[] railVertices = circle == null ? new float[budget * 12] : null;
+        int[] darkColors = circle == null ? new int[budget] : null;
+        int[] railColors = circle == null ? new int[budget] : null;
         graphics.enableScissor(view.x(), view.y(), view.x() + view.width(), view.y() + view.height());
         int shown = 0;
+        int drawn = 0;
         for (Segment line : lines) {
             float x0 = view.screenX(Projection.u(line.from.x, line.from.z));
             float y0 = view.screenY(Projection.v(line.from.x, line.from.y, line.from.z));
@@ -192,10 +200,42 @@ public final class CreateCurves implements MapAnnotations.Source {
                 break;
             }
             float width = (float) Math.max(1.1, Math.min(4, view.zoom() * 1.5));
-            stroke(canvas, circle, x0, y0, x1, y1, width + 0.9f, DARK);
-            stroke(canvas, circle, x0, y0, x1, y1, width * 0.55f, RAIL);
+            if (circle != null) {
+                stroke(canvas, circle, x0, y0, x1, y1, width + 0.9f, DARK);
+                stroke(canvas, circle, x0, y0, x1, y1, width * 0.55f, RAIL);
+            } else {
+                float[] darkQuad = vertices(x0, y0, x1, y1, width + 0.9f);
+                float[] railQuad = vertices(x0, y0, x1, y1, width * 0.55f);
+                if (darkQuad == null || railQuad == null) {
+                    continue;
+                }
+                System.arraycopy(darkQuad, 0, darkVertices, drawn * 12, 12);
+                System.arraycopy(railQuad, 0, railVertices, drawn * 12, 12);
+                darkColors[drawn] = DARK;
+                railColors[drawn] = RAIL;
+                drawn++;
+            }
+        }
+        if (drawn > 0) {
+            canvas.solids(darkVertices, darkColors, drawn);
+            canvas.solids(railVertices, railColors, drawn);
         }
         graphics.disableScissor();
+    }
+
+    private static float[] vertices(float x0, float y0, float x1, float y1, float width) {
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        float length = (float) Math.hypot(dx, dy);
+        if (length < 0.0001f) {
+            return null;
+        }
+        float nx = -dy / length * width / 2;
+        float ny = dx / length * width / 2;
+        return new float[] {
+            x0 + nx, y0 + ny, 0, x0 - nx, y0 - ny, 0,
+            x1 - nx, y1 - ny, 0, x1 + nx, y1 + ny, 0
+        };
     }
 
     private static void stroke(MapCanvas canvas, Circle circle, float x0, float y0, float x1, float y1, float width, int color) {
