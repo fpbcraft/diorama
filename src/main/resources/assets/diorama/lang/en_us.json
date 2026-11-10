@@ -184,6 +184,8 @@
 	"diorama.map.caves": "Caves",
 	"diorama.map.waypoints": "Waypoints",
 	"diorama.map.maps": "Maps",
+	"diorama.map.claims_on": "Claims: ON",
+	"diorama.map.claims_off": "Claims: OFF",
 	"diorama.map.current_map": "Map: %s",
 	"diorama.map.dimension_button": "Next dimension's map (hold Shift to reverse)",
 	"diorama.map.dimension_button_key": "%s: next dimension's map (hold Shift to reverse)",
