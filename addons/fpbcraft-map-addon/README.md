@@ -21,17 +21,14 @@ own gameplay already requires them.
 ## Build
 
 1. Check out the branches for PR #1, PR #2 and this add-on in the same repository.
-2. Build Diorama first from the repository root with **JDK 25**:
+2. From the repository root, build both projects in dependency order with **JDK 25**:
 
-   `JAVA_HOME=$(/usr/libexec/java_home -v 25) ./gradlew :1.21.1-neoforge:build`
+   `JAVA_HOME=$(/usr/libexec/java_home -v 25) bash scripts/build-fpbcraft-addon.sh`
 
-3. Build the add-on as its **independent Gradle project**:
+   This builds Diorama first, then compiles the separate add-on against that exact JAR.
+   You can alternatively run the two Gradle builds manually, in that order.
 
-   `cd addons/fpbcraft-map-addon`
-
-   `JAVA_HOME=$(/usr/libexec/java_home -v 25) ../../gradlew -p . build`
-
-4. Place `build/libs/fpbcraft-diorama-addon-0.1.0.jar` into the **client** mods folder
+3. Place `build/libs/fpbcraft-diorama-addon-0.1.0.jar` into the **client** mods folder
    alongside the matching Diorama JAR. This add-on must not be installed on a dedicated
    server. The three optional source mods are not bundled.
 
