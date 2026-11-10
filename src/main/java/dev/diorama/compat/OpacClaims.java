@@ -5,7 +5,10 @@ import dev.diorama.Diorama;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import net.minecraft.network.chat.Component;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -33,6 +36,10 @@ public final class OpacClaims {
 	private static Object manager;
 	private static Object listener;
 	private static Object subscribedManager;
+	private static Object subscribedResultsManager;
+	/** Only report results for requests made through Diorama, never OPAC's own GUI. */
+	private static final List<PendingAction> pending = new ArrayList<>();
+	private record PendingAction(Object dimension, int left, int top, int right, int bottom, Action action) {}
 	private static Object lastWorld;
 	private static boolean reload = true;
 	private static final Set<Long> dirtyChunks = new HashSet<>();
@@ -87,7 +94,8 @@ public final class OpacClaims {
 				lastWorld = mc.level;
 				reload = true;
 				dirtyChunks.clear();
-				dirtyRegions.clear();
+					dirtyRegions.clear();
+				pending.clear();
 			}
 			return true;
 		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
@@ -101,6 +109,7 @@ public final class OpacClaims {
 		reload = true;
 		dirtyChunks.clear();
 		dirtyRegions.clear();
+		pending.clear();
 	}
 
 	/** Called by Claims.tick, after the world and provider are selected. */
@@ -132,6 +141,28 @@ public final class OpacClaims {
 				listener = Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler);
 				call(call(manager, "getTracker"), "register", listener);
 				subscribedManager = manager;
+			}
+			if (subscribedResultsManager != manager) {
+				// Unlike requestAreaClaim (which only sends a packet), this callback carries
+				// the authoritative server result, including failures and partial successes.
+				Class<?> type = Class.forName("xaero.pac.client.claims.tracker.result.api.IClaimsManagerClaimResultListenerAPI");
+				Object resultListener = Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+					(proxy, method, args) -> {
+						if (method.getDeclaringClass() == Object.class) {
+							return switch (method.getName()) {
+								case "hashCode" -> System.identityHashCode(proxy);
+								case "equals" -> proxy == args[0];
+								default -> "Diorama OPAC result listener";
+							};
+						}
+						if ("onClaimResult".equals(method.getName()) && args != null && args.length == 1) {
+							Object result = args[0];
+							mc.execute(() -> showResult(mc, result));
+						}
+						return null;
+					});
+				call(call(manager, "getClaimResultTracker"), "register", resultListener);
+				subscribedResultsManager = manager;
 			}
 			// OPAC loads its initial sync asynchronously. Never treat an incomplete list as final.
 			if (reload && !Boolean.TRUE.equals(call(manager, "isLoading"))) {
@@ -213,6 +244,94 @@ public final class OpacClaims {
 		return new Claims.Claim(owner, color, label, Boolean.TRUE.equals(call(claim, "isForceloadable")));
 	}
 
+	/**
+	 * Maximum claim distance in chunks (a square around the player). -1 means that
+	 * the server has not synced a limit or the player is in admin/moderator mode.
+	 * The server also enforces claim limits, anchor rules and dimension permissions.
+	 */
+	public static int maxClaimDistance(Minecraft mc) {
+		if (!available(mc)) {
+			return -1;
+		}
+		try {
+			if (Boolean.TRUE.equals(call(manager, "isModeratorMode"))) {
+				return -1;
+			}
+			int distance = (int) call(manager, "getMaxClaimDistance");
+			return distance >= 0 ? distance : -1;
+		} catch (ReflectiveOperationException | RuntimeException e) {
+			return -1; // Unknown is not the same thing as out of range.
+		}
+	}
+
+	/** Local distance preflight; only the server can make the final permission decision. */
+	public static boolean outsideClaimDistance(Minecraft mc, int chunkX, int chunkZ) {
+		int distance = maxClaimDistance(mc);
+		if (distance < 0 || mc.player == null) {
+			return false;
+		}
+		return Math.abs((long) chunkX - mc.player.chunkPosition().x) > distance
+			|| Math.abs((long) chunkZ - mc.player.chunkPosition().z) > distance;
+	}
+
+	/** A claim response is only shown if its dimension and exact area match our pending request. */
+	private static void showResult(Minecraft mc, Object result) {
+		if (mc.player == null || pending.isEmpty()) {
+			return;
+		}
+		try {
+			Object dimension = call(result, "getDimension");
+			int left = (int) call(result, "getLeft");
+			int top = (int) call(result, "getTop");
+			int right = (int) call(result, "getRight");
+			int bottom = (int) call(result, "getBottom");
+			PendingAction match = null;
+			for (PendingAction request : pending) {
+				if (request.dimension().equals(dimension) && request.left() == left
+					&& request.top() == top && request.right() == right && request.bottom() == bottom) {
+					match = request;
+					break;
+				}
+			}
+			if (match == null) {
+				return;
+			}
+			pending.remove(match);
+			Component message = Component.literal("OPAC " + match.action().name().toLowerCase(java.util.Locale.ROOT) + ": ");
+			int visible = 0;
+			Object types = call(result, "getResultTypesIterable");
+			if (types instanceof Iterable<?> results) {
+				for (Object type : results) {
+					if (Boolean.TRUE.equals(type.getClass().getField("hidden").get(type))) {
+						continue;
+					}
+					Object text = type.getClass().getField("message").get(type);
+					if (text instanceof Component detail) {
+						if (visible++ > 0) {
+							message = message.copy().append(Component.literal("; "));
+						}
+						message = message.copy().append(detail);
+					}
+				}
+			}
+			Object reasons = call(result, "getCustomReasons");
+			if (reasons instanceof Iterable<?> custom) {
+				for (Object reason : custom) {
+					if (reason instanceof Component detail) {
+						message = message.copy().append(Component.literal("; ")).append(detail);
+						visible++;
+					}
+				}
+			}
+			if (visible == 0) {
+				message = message.copy().append(Component.literal("Request processed; no status returned"));
+			}
+			mc.player.displayClientMessage(message, false);
+		} catch (ReflectiveOperationException | RuntimeException e) {
+			Diorama.LOGGER.warn("Could not display OPAC's claim result", e);
+		}
+	}
+
 	/** Requests are validated by OPAC on the server; null uses the current player/party/server mode. */
 	public static boolean requestArea(Minecraft mc, int x0, int z0, int x1, int z1, Action action) {
 		if (!available(mc)) {
@@ -222,6 +341,11 @@ public final class OpacClaims {
 		int right = Math.max(x0, x1), bottom = Math.max(z0, z1);
 		try {
 			Object dim = currentDimension(mc);
+			PendingAction request = new PendingAction(dim, left, top, right, bottom, action);
+			pending.add(request);
+			if (pending.size() > 16) {
+				pending.remove(0);
+			}
 			switch (action) {
 				case CLAIM -> call(manager, "requestAreaClaim", dim, left, top, right, bottom, null);
 				case UNCLAIM -> call(manager, "requestAreaUnclaim", dim, left, top, right, bottom, null);
@@ -230,6 +354,7 @@ public final class OpacClaims {
 			}
 			return true;
 		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+			pending.clear();
 			warn(e);
 			return false;
 		}
