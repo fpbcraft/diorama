@@ -1,6 +1,7 @@
 package dev.diorama;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.diorama.api.MapAnnotations;
 import dev.diorama.compat.Contraptions;
 import dev.diorama.craft.Crafts;
 //? if >=1.21.6 {
@@ -80,6 +81,7 @@ public final class DioramaClient {
 		MapSession.tick(mc);
 		Waypoints.watchSleep(mc);
 		Claims.tick(mc);
+		MapAnnotations.tick(mc);
 		XaeroNotice.tick(mc);
 		while (OPEN_MAP.consumeClick()) {
 			if (mc.gui.screen() == null && mc.level != null && ServerRules.minimapAllowed()) {
