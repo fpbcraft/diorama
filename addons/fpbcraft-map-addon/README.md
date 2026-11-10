@@ -10,11 +10,14 @@ This add-on registers three optional, read-only providers:
 - **Create railways:** synced station names, docked trains, moving train positions and any
   navigation destination already present in Create's client train state. Works with CRN but
   currently does not query CRN's timetable/delay calculations.
-- **Create Aeronautics/Sable:** moving live pins for **named** Sable sub-levels, using their
-  synchronized pose and stable UUID. Unnamed contraptions are not shown.
+- **Create Aeronautics/Sable:** actual moving block imagery for all client-visible Sable
+  sub-levels (including unnamed ones), rendered by Diorama's existing craft baker with
+  textures, rotation, shadows and occlusion. Optional name pins remain available but are
+  disabled by default.
 
 Live pins are **never persisted** as Diorama waypoints; they appear/disappear as source state
-changes. All reflection bridges are client-side and optional. A dedicated server installation
+changes. Sable craft imagery is also transient and is not saved as a parked craft.
+All reflection bridges are client-side and optional. A dedicated server installation
 of the add-on is **not** required; MineColonies, Create and Sable must be present where their
 own gameplay already requires them.
 
@@ -32,8 +35,8 @@ own gameplay already requires them.
    alongside the matching Diorama JAR. This add-on must not be installed on a dedicated
    server. The three optional source mods are not bundled.
 
-The add-on uses a `compileOnly` file-tree dependency on the parent's local NeoForge 1.21.1
-Diorama jar, rather than re-bundling Diorama. It targets Java 21 bytecode.
+The add-on uses a `compileOnly` dependency on the exact, freshly built NeoForge 1.21.1
+Diorama jar, rather than bundling Diorama or resolving an older jar. It targets Java 21 bytecode.
 
 ## Known limitations / required tests
 
@@ -41,7 +44,7 @@ Diorama jar, rather than re-bundling Diorama. It targets Java 21 bytecode.
   for this code yet.
 - Source APIs can differ across installed MineColonies, CRN, Create, Aeronautics and Sable
   versions. A failing provider disables only itself via Diorama's annotation registry.
-- Building names can be translation keys if the source does not give the client a translated name.
+- MineColonies' own translation keys are localized when known to the client.
 - Request pins aggregate active player-resolver requests per source position; clicking uses
   Diorama's normal pin navigation/copy menu. A dedicated request detail/action screen,
   request item stacks/quantities, filters and clustering are planned.
@@ -49,17 +52,24 @@ Diorama jar, rather than re-bundling Diorama. It targets Java 21 bytecode.
   chunk-boundary snapshots and terrain-aware rendering rather than assuming a circular radius.
 - **CRN departure times, delay data, route selection and line colours** are not yet displayed.
   The initial train and station positions come from Create's synced graph.
-- The moving vehicle provider reads only named sub-levels currently visible to the client,
-  not every ship in distant unloaded regions. Sable is the authoritative source; the
-  add-on does not invent player-defined names or server-wide ship positions.
+- The moving block imagery reads all **client-visible** Sable sub-levels, including unnamed
+  vehicles, and uses their already synchronized plot blocks and interpolated poses. It does
+  not show distant ships without client data. Larger ships may require expensive first-time
+  snapshots; sub-levels exceeding Diorama's cell limit are skipped.
+- Compact icon badges replace the always-on labels for live markers. Full details appear
+  on hover. Separate toggles under Diorama Settings > Overlays control each integration;
+  ships render as blocks by default, not as name pins.
 - Dynamic curved-track geometry is currently implemented as a reference provider in Diorama
   PR #2, and should migrate into this add-on after its performance and fog masking are validated.
-- No per-provider visibility options or clustering are present yet, and the existing global
-  Diorama waypoint toggle controls marker visibility.
+- Individual marker groups can be enabled/disabled via Settings > Overlays; full clustering
+  and request-detail screens remain to be implemented. The existing global Diorama
+  waypoint setting also controls whether any live pins appear.
 
 ## Roadmap
 
-1. Compile and smoke-test the three optional bridges against the exact installed mod JARs.
+1. Compile and smoke-test the integration providers against the exact installed mod JARs.
+   Specifically verify that Create's `BezierConnection.primary` field resolves, and that
+   Sable's plot blocks are drawn at the correct position/orientation across motion and world reloads.
 2. Add collapsible filter groups for colony, job and supply request pins.
 3. Add a safe, scoped request-detail popup that cannot fulfil/cancel requests without
    server-side permission checks.
