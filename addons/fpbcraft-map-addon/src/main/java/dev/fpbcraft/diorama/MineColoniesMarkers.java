@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 
 /**
  * A read-only view of MineColonies' already-synchronized client colony data. Mirrors the
@@ -63,6 +64,9 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                         Object building = entry.getValue();
                         int level = ((Number) ReflectSupport.call(building, "getBuildingLevel")).intValue();
                         String buildingName = String.valueOf(ReflectSupport.call(building, "getBuildingDisplayName"));
+                        if (buildingName.startsWith("com.minecolonies.") || buildingName.startsWith("block.minecolonies.")) {
+                            buildingName = Component.translatable(buildingName).getString();
+                        }
                         next.add(icon(prefix + "building:" + pos.asLong(),
                             buildingName + " · level " + level, pos, dimension, 0xFF8D6B4B, "HUT", "diorama:home"));
                     }
