@@ -123,6 +123,11 @@ public final class MapScreen extends Screen {
 	/** Shift-drag claims a rectangular area through OPAC; Shift-right-drag unclaims it. */
 	private boolean claimSelecting;
 	private boolean claimRemoving;
+	/** Short-lived feedback drawn in this map instead of spamming Minecraft chat. */
+	private @Nullable Component claimFeedback;
+	private boolean claimFeedbackError;
+	private boolean claimFeedbackPending;
+	private long claimFeedbackUntil;
 	private double claimEndX;
 	private double claimEndY;
 	private static final int MAX_CLAIM_SELECTION_CHUNKS = 4096;
@@ -617,6 +622,7 @@ public final class MapScreen extends Screen {
 		this.drawMapName(graphics, 6 + this.font.width(help) + 12);
 		// Widgets (the buttons) draw over the map, then the icons on them.
 		super.extractRenderState(graphics, mouseX, mouseY, a);
+		this.drawClaimFeedback(graphics);
 		Markers.player(graphics, this.recenter.getX() + 10, this.recenter.getY() + 10.5F, 180, 5);
 		DrawMode.icon(graphics, DrawMode.PENCIL_ICON, this.drawButton.getX(), this.drawButton.getY(), 0xFFFFFFFF);
 		if (this.draw.active()) {
@@ -949,6 +955,39 @@ public final class MapScreen extends Screen {
 		return false;
 	}
 
+	/** Called on the Minecraft client thread by OPAC's server-result listener. */
+	public void showClaimFeedback(Component message, boolean error, boolean pending) {
+		this.claimFeedback = message;
+		this.claimFeedbackError = error;
+		this.claimFeedbackPending = pending;
+		this.claimFeedbackUntil = System.currentTimeMillis() + (pending ? 3500L : 6500L);
+	}
+
+	/** Render the most recent claim result inside Diorama, above the map help bar. */
+	private void drawClaimFeedback(GuiGraphicsExtractor graphics) {
+		if (this.claimFeedback == null) return;
+		if (System.currentTimeMillis() >= this.claimFeedbackUntil) {
+			this.claimFeedback = null;
+			return;
+		}
+		int maxTextWidth = Math.max(80, Math.min(440, this.width - 36));
+		List<FormattedCharSequence> lines = this.font.split(this.claimFeedback, maxTextWidth);
+		int lineCount = Math.min(lines.size(), 4);
+		if (lineCount == 0) return;
+		int textWidth = 0;
+		for (int i = 0; i < lineCount; i++) {
+			textWidth = Math.max(textWidth, this.font.width(lines.get(i)));
+		}
+		int left = (this.width - textWidth) / 2 - 12;
+		int top = this.height - BOTTOM_BAR - 16 - lineCount * 10;
+		graphics.fill(left, top, left + textWidth + 24, top + lineCount * 10 + 12, 0xDE141C24);
+		graphics.fill(left, top, left + 3, top + lineCount * 10 + 12,
+			this.claimFeedbackPending ? 0xFFE0B858 : this.claimFeedbackError ? 0xFFE66A62 : 0xFF69CF8D);
+		for (int i = 0; i < lineCount; i++) {
+			graphics.text(this.font, lines.get(i), left + 12, top + 6 + i * 10, 0xFFFFFFFF, false);
+		}
+	}
+
 	/** Reset every bit of claim-drag input state, without changing OPAC's claim data. */
 	private void cancelClaimSelection() {
 		if (this.claimSelecting) {
@@ -1023,23 +1062,13 @@ public final class MapScreen extends Screen {
 				int x1 = bounds[1].getX() >> 4, z1 = bounds[1].getZ() >> 4;
 				long count = (Math.abs((long) x1 - x0) + 1) * (Math.abs((long) z1 - z0) + 1);
 				if (count > MAX_CLAIM_SELECTION_CHUNKS) {
-					if (this.minecraft.player != null) {
-						this.minecraft.player.displayClientMessage(Component.literal("OPAC: selection is too large (max 4096 chunks)"), true);
-					}
+					this.showClaimFeedback(Component.literal("Selection is too large (maximum 4096 chunks)"), true, false);
 					return;
 				}
-				boolean tooFar = OpacClaims.outsideClaimDistance(this.minecraft, x0, z0)
-					|| OpacClaims.outsideClaimDistance(this.minecraft, x1, z1);
-				if (this.minecraft.player != null && tooFar) {
-					this.minecraft.player.displayClientMessage(Component.literal(
-						"OPAC: Some selected chunks are outside claimable range; the server may only process the reachable area."), true);
-				}
-				boolean sent = OpacClaims.requestArea(this.minecraft, x0, z0, x1, z1,
+				// OPAC displays the pending state and authoritative result inside this map.
+				// Its server enforces the distance boundary and may partially process an area.
+				OpacClaims.requestArea(this.minecraft, x0, z0, x1, z1,
 					remove ? OpacClaims.Action.UNCLAIM : OpacClaims.Action.CLAIM);
-				if (this.minecraft.player != null) {
-					this.minecraft.player.displayClientMessage(Component.literal(
-						sent ? "OPAC: Request sent — awaiting server confirmation" : "OPAC: Could not send claim request"), true);
-				}
 			}, this.minecraft);
 	}
 
