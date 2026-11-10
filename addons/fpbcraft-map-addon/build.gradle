@@ -18,9 +18,32 @@ neoForge {
     }
 }
 
+// Use the exact matching core artifact, not every (possibly stale) Diorama jar in build/libs.
+// The annotation API is compiled into Diorama by the parent project's Stonecutter build.
+def dioramaJar = file('../../versions/1.21.1-neoforge/build/libs/diorama-0.9.0+neoforge-1.21.1.jar')
+
 dependencies {
-    // Build the parent Diorama project first. This JAR stays external at runtime.
-    compileOnly fileTree(dir: '../../versions/1.21.1-neoforge/build/libs', include: 'diorama-*neoforge-1.21.1*.jar')
+    // The add-on is a separate jar and does not package Diorama itself.
+    compileOnly files(dioramaJar)
+}
+
+tasks.named('compileJava', JavaCompile) {
+    doFirst {
+        if (!dioramaJar.isFile()) {
+            throw new GradleException(
+                "Diorama's NeoForge 1.21.1 jar is missing. First run from the repository root: " +
+                "JAVA_HOME=\\$(/usr/libexec/java_home -v 25) ./gradlew :1.21.1-neoforge:build"
+            )
+        }
+        new java.util.zip.ZipFile(dioramaJar).withCloseable { jar ->
+            if (jar.getEntry('dev/diorama/api/MapAnnotations.class') == null) {
+                throw new GradleException(
+                    "Diorama jar does not include MapAnnotations (old build): ${dioramaJar}. " +
+                    "Rebuild the feat/fpbcraft-map-addon branch's Diorama core first."
+                )
+            }
+        }
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
