@@ -50,14 +50,14 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                 String name = String.valueOf(ReflectSupport.call(colony, "getName"));
                 String prefix = "minecolonies:" + id + ":";
                 Object origin = ReflectSupport.call(colony, "getCenter");
-                if (origin instanceof BlockPos center) {
+                if (Settings.get().showColonyCenters && origin instanceof BlockPos center) {
                     next.add(icon(prefix + "center", "Colony: " + name,
                         center, dimension, 0xFFF76B15, "MC", "diorama:villagers"));
                 }
 
                 Object buildingManager = ReflectSupport.call(colony, "getClientBuildingManager");
                 Object buildings = ReflectSupport.call(buildingManager, "getBuildings");
-                if (buildings instanceof Map<?, ?> map) {
+                if (Settings.get().showColonyBuildings && buildings instanceof Map<?, ?> map) {
                     for (Map.Entry<?, ?> entry : map.entrySet()) {
                         if (next.size() >= MAX_MARKERS) break;
                         if (!(entry.getKey() instanceof BlockPos pos)) continue;
@@ -73,7 +73,7 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                 }
 
                 Object orders = ReflectSupport.call(colony, "getWorkOrders");
-                if (orders instanceof Collection<?> workOrders) {
+                if (Settings.get().showColonyConstruction && orders instanceof Collection<?> workOrders) {
                     for (Object order : workOrders) {
                         if (next.size() >= MAX_MARKERS) break;
                         Object location = ReflectSupport.call(order, "getLocation");
@@ -87,7 +87,7 @@ final class MineColoniesMarkers implements MapAnnotations.Source {
                 }
 
                 Object requestManager = ReflectSupport.call(colony, "getRequestManager");
-                if (requestManager == null) continue;
+                if (requestManager == null || !Settings.get().showColonyRequests) continue;
                 Map<BlockPos, List<String>> requests = new HashMap<>();
                 Set<Object> seenTokens = new HashSet<>();
                 // Same resolvers used by MineColonies' own Clipboard to find player-facing needs.
