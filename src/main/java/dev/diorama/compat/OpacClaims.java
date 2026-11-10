@@ -53,6 +53,11 @@ public final class OpacClaims {
 		return installed;
 	}
 
+	/** Whether the client has OPAC installed, for Diorama's settings UI. */
+	public static boolean installedOnClient() {
+		return installed();
+	}
+
 	/** True only after the current server's OPAC handshake; a client-only install is not enough. */
 	public static boolean available(Minecraft mc) {
 		if (mc.level == null || broken || !installed()) {
