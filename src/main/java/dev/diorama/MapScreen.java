@@ -10,6 +10,7 @@ import dev.diorama.bake.TileKey;
 import dev.diorama.bake.TileSpots;
 import dev.diorama.render.MapLevel;
 import dev.diorama.render.MapViewport;
+import dev.diorama.render.gpu.MapCanvas;
 import dev.diorama.render.Markers;
 import dev.diorama.render.Pins;
 import dev.diorama.render.Radar;
@@ -211,6 +212,7 @@ public final class MapScreen extends Screen {
 		this.pressOnMenu = false;
 		this.pressOnControl = false;
 		this.claimSelecting = false;
+		this.claimRemoving = false;
 		Settings settings = Settings.get();
 		this.dimensionButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> this.nextDimension())
 			.size(20, 20).createNarration(n -> this.dimensionName().copy()).build());
@@ -571,12 +573,17 @@ public final class MapScreen extends Screen {
 			}
 		}
 
+		this.drawClaimableRange(graphics, view, viewer);
 		if (this.claimSelecting) {
+			BlockPos from = this.roughSpot(this.pressX, this.pressY);
+			BlockPos to = this.roughSpot(this.claimEndX, this.claimEndY);
+			boolean tooFar = (from != null && OpacClaims.outsideClaimDistance(this.minecraft, from.getX() >> 4, from.getZ() >> 4))
+				|| (to != null && OpacClaims.outsideClaimDistance(this.minecraft, to.getX() >> 4, to.getZ() >> 4));
 			int x0 = (int) Math.min(this.pressX, this.claimEndX);
 			int y0 = (int) Math.min(this.pressY, this.claimEndY);
 			int x1 = (int) Math.max(this.pressX, this.claimEndX);
 			int y1 = (int) Math.max(this.pressY, this.claimEndY);
-			int color = this.claimRemoving ? 0x55FF6666 : 0x5566DD88;
+			int color = tooFar ? 0x77FF3C3C : this.claimRemoving ? 0x55FF6666 : 0x5566DD88;
 			graphics.fill(x0, y0, x1 + 1, y1 + 1, color);
 			graphics.fill(x0, y0, x1 + 1, y0 + 1, 0xFFFFFFFF);
 			graphics.fill(x0, y1, x1 + 1, y1 + 1, 0xFFFFFFFF);
@@ -589,7 +596,9 @@ public final class MapScreen extends Screen {
 		int statusX = this.tabsEnd + 8;
 		graphics.text(this.font, this.statusText(shown, viewer, caves, this.buttonsStart() - 2 - statusX), statusX, 4, 0xFFFFFFFF, false);
 		graphics.fill(0, this.height - BOTTOM_BAR, this.width, this.height, 0x90000000);
-		String help = (this.draw.active() ? this.draw.help() : HELP).getString();
+		String help = this.claimSelecting
+			? "OPAC: " + (this.claimRemoving ? "Unclaim" : "Claim") + " area · Release to submit · Esc to cancel"
+			: (this.draw.active() ? this.draw.help() : HELP).getString();
 		graphics.text(this.font, help, 6, this.height - 11, 0xFFC8D0DA, false);
 		this.drawMapName(graphics, 6 + this.font.width(help) + 12);
 		// Widgets (the buttons) draw over the map, then the icons on them.
@@ -688,6 +697,7 @@ public final class MapScreen extends Screen {
 
 	/** Toggles the existing claims setting without losing the fullscreen-only preference. */
 	private void toggleClaims() {
+		this.cancelClaimSelection();
 		Settings settings = Settings.get();
 		if (settings.claims == Settings.ClaimsShown.OFF) {
 			settings.claims = settings.claimsWhenEnabled == Settings.ClaimsShown.OFF
@@ -785,6 +795,9 @@ public final class MapScreen extends Screen {
 	 * and anywhere else its release only closes the menu. False when the menu isn't open.
 	 */
 	private boolean menuPressed(double x, double y, int button) {
+		if (this.menu != null && this.claimSelecting) {
+			this.cancelClaimSelection();
+		}
 		if (this.menu == null) {
 			return false;
 		}
@@ -798,6 +811,9 @@ public final class MapScreen extends Screen {
 
 	/** A press; {@code widgetTook} if a widget (a button) took it. */
 	private boolean clicked(boolean widgetTook, double x, double y, int button) {
+		// A second click may arrive while the first button's release was missed.
+		// Never let the old rectangle keep intercepting unrelated gestures.
+		this.cancelClaimSelection();
 		this.pressButton = button;
 		this.pressOnControl = false;
 		if (!widgetTook && button == InputConstants.MOUSE_BUTTON_LEFT) {
@@ -862,10 +878,15 @@ public final class MapScreen extends Screen {
 			this.draw.release(this.lastView, this.font, this.dimension(), x, y, button, true);
 			return true;
 		}
-		if (this.claimSelecting && button == this.pressButton) {
-			this.claimSelecting = false;
-			this.pressButton = -1;
-			this.claimSelection(this.pressX, this.pressY, x, y, this.claimRemoving);
+		if (this.claimSelecting) {
+			if (button != this.pressButton) {
+				// Lost/overwritten initial mouse press. Cancel rather than getting stuck.
+				this.cancelClaimSelection();
+				return true;
+			}
+			boolean remove = this.claimRemoving;
+			this.cancelClaimSelection();
+			this.claimSelection(this.pressX, this.pressY, x, y, remove);
 			return true;
 		}
 		// Only the release of the latest press counts: letting go of a button held since before
@@ -914,6 +935,59 @@ public final class MapScreen extends Screen {
 		return false;
 	}
 
+	/** Reset every bit of claim-drag input state, without changing OPAC's claim data. */
+	private void cancelClaimSelection() {
+		if (this.claimSelecting) {
+			this.pressButton = -1;
+			this.dragged = false;
+		}
+		this.claimSelecting = false;
+		this.claimRemoving = false;
+	}
+
+	/**
+	 * Approximate claim-distance outline while holding Shift or dragging a claim area.
+	 * OPAC limits X and Z independently, giving a square around the player's chunk.
+	 * The map uses a fixed player Y, so the outline follows Diorama's map projection
+	 * but does not account for varying terrain elevations.
+	 */
+	private void drawClaimableRange(GuiGraphicsExtractor graphics, MapViewport.View view, Entity viewer) {
+		if (!(this.claimSelecting || DrawMode.shiftDown()) || this.otherDimension != null) {
+			return;
+		}
+		int range = OpacClaims.maxClaimDistance(this.minecraft);
+		if (range < 0 || this.minecraft.player == null) {
+			return;
+		}
+		int cx = this.minecraft.player.chunkPosition().x;
+		int cz = this.minecraft.player.chunkPosition().z;
+		long[] x = {(long) (cx - range) * 16, ((long) cx + range + 1) * 16};
+		long[] z = {(long) (cz - range) * 16, ((long) cz + range + 1) * 16};
+		double y = viewer.getY();
+		float[] px = new float[4], py = new float[4];
+		for (int i = 0; i < 4; i++) {
+			double wx = x[i == 1 || i == 2 ? 1 : 0];
+			double wz = z[i >= 2 ? 1 : 0];
+			px[i] = view.screenX(Projection.u(wx, wz));
+			py[i] = view.screenY(Projection.v(wx, y, wz));
+		}
+		graphics.enableScissor(view.x(), view.y(), view.x() + view.width(), view.y() + view.height());
+		for (int i = 0; i < 4; i++) {
+			int next = (i + 1) & 3;
+			float dx = px[next] - px[i], dy = py[next] - py[i];
+			float len = (float) Math.hypot(dx, dy);
+			if (len < 0.001f) continue;
+			float nx = -dy / len, ny = dx / len;
+			MapCanvas.of(graphics).solid(new float[] {
+				px[i] + nx, py[i] + ny,
+				px[i] - nx, py[i] - ny,
+				px[next] - nx, py[next] - ny,
+				px[next] + nx, py[next] + ny
+			}, 0xCC58DB83);
+		}
+		graphics.disableScissor();
+	}
+
 	/**
 	 * Prefer real picked ground over the projection's estimated Y=64 when selecting claims on
 	 * Diorama's angled map. Both picks can finish asynchronously if the tiles are on disk.
@@ -928,7 +1002,7 @@ public final class MapScreen extends Screen {
 		this.spotAt(fromX, fromY, false).thenCombine(this.spotAt(toX, toY, false), (from, to) ->
 			new BlockPos[] {from.pos() == null ? roughFrom : from.pos(), to.pos() == null ? roughTo : to.pos()})
 			.thenAcceptAsync(bounds -> {
-				if (this.minecraft.level != world) {
+				if (this.minecraft.level != world || this.minecraft.screen != this) {
 					return;
 				}
 				int x0 = bounds[0].getX() >> 4, z0 = bounds[0].getZ() >> 4;
@@ -940,8 +1014,18 @@ public final class MapScreen extends Screen {
 					}
 					return;
 				}
-				OpacClaims.requestArea(this.minecraft, x0, z0, x1, z1,
+				boolean tooFar = OpacClaims.outsideClaimDistance(this.minecraft, x0, z0)
+					|| OpacClaims.outsideClaimDistance(this.minecraft, x1, z1);
+				if (this.minecraft.player != null && tooFar) {
+					this.minecraft.player.displayClientMessage(Component.literal(
+						"OPAC: Some selected chunks are outside claimable range; the server may only process the reachable area."), true);
+				}
+				boolean sent = OpacClaims.requestArea(this.minecraft, x0, z0, x1, z1,
 					remove ? OpacClaims.Action.UNCLAIM : OpacClaims.Action.CLAIM);
+				if (this.minecraft.player != null) {
+					this.minecraft.player.displayClientMessage(Component.literal(
+						sent ? "OPAC: Request sent — awaiting server confirmation" : "OPAC: Could not send claim request"), true);
+				}
 			}, this.minecraft);
 	}
 
@@ -1245,6 +1329,10 @@ public final class MapScreen extends Screen {
 
 	/** A key press, and whether it is bound to the waypoint list or the map; false leaves it to the screen. */
 	private boolean keyDown(int key, boolean waypointListKey, boolean mapKey, boolean dimensionKey) {
+		if (key == InputConstants.KEY_ESCAPE && this.claimSelecting) {
+			this.cancelClaimSelection();
+			return true;
+		}
 		if (this.draw.typing()) {
 			// Typing a note: only Enter and Esc are the map's, the rest are the note's.
 			return this.draw.key(key, this.dimension());
@@ -1735,6 +1823,7 @@ public final class MapScreen extends Screen {
 
 	@Override
 	public void removed() {
+		this.cancelClaimSelection();
 		this.viewport.close();
 		this.draw.close();
 		this.closeOtherMap();
