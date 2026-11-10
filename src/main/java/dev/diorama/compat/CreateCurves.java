@@ -331,19 +331,45 @@ public final class CreateCurves implements MapAnnotations.Source {
             if (partial == null) return null;
             Object model = partial.getClass().getMethod("get").invoke(partial);
             if (model == null) return null;
+            // Prefer the real top-face quads; particle textures can be misleading for
+            // complex Steam 'n' Rails track models. NeoForge may expose 3- or 5-argument
+            // BakedModel#getQuads, depending on the installed renderer.
             for (Method method : model.getClass().getMethods()) {
-                if (!method.getName().equals("getQuads") || method.getParameterCount() != 3) continue;
-                Object quads = method.invoke(model, null, null, RandomSource.create(42L));
-                if (quads instanceof Iterable<?> iterable) {
-                    for (Object quad : iterable) {
-                        Object sprite = quad.getClass().getMethod("getSprite").invoke(quad);
-                        if (sprite instanceof TextureAtlasSprite texture) return texture;
+                if (!method.getName().equals("getQuads")) continue;
+                int parameters = method.getParameterCount();
+                if (parameters != 3 && parameters != 5) continue;
+                try {
+                    Object[] args = parameters == 3
+                        ? new Object[] {null, null, RandomSource.create(42L)}
+                        : new Object[] {null, null, RandomSource.create(42L),
+                            Class.forName("net.neoforged.neoforge.client.model.data.ModelData")
+                                .getField("EMPTY").get(null),
+                            Class.forName("net.minecraft.client.renderer.RenderType")
+                                .getMethod("cutoutMipped").invoke(null)};
+                    Object quads = method.invoke(model, args);
+                    if (quads instanceof Iterable<?> iterable) {
+                        for (Object quad : iterable) {
+                            Object sprite = quad.getClass().getMethod("getSprite").invoke(quad);
+                            if (sprite instanceof TextureAtlasSprite texture) return texture;
+                        }
                     }
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // Try another overload or particle sprite.
                 }
             }
-            // Some partial models expose only a particle texture without standard quads.
-            Object sprite = model.getClass().getMethod("getParticleIcon").invoke(model);
-            return sprite instanceof TextureAtlasSprite texture ? texture : null;
+            for (Method method : model.getClass().getMethods()) {
+                if (!method.getName().equals("getParticleIcon")) continue;
+                try {
+                    Object sprite = method.getParameterCount() == 0 ? method.invoke(model)
+                        : method.getParameterCount() == 1
+                        ? method.invoke(model, Class.forName("net.neoforged.neoforge.client.model.data.ModelData")
+                            .getField("EMPTY").get(null)) : null;
+                    if (sprite instanceof TextureAtlasSprite texture) return texture;
+                } catch (ReflectiveOperationException | RuntimeException ignored) {
+                    // Other modded partial-model variant.
+                }
+            }
+            return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             return null;
         }
@@ -396,9 +422,11 @@ public final class CreateCurves implements MapAnnotations.Source {
         int budget = Math.min(lines.size(), MAX_RENDER_SEGMENTS);
         MapCanvas canvas = MapCanvas.of(graphics);
         Circle circle = view.round() ? Circle.in(view) : null;
-        QuadBatch ties = new QuadBatch(budget);
-        QuadBatch railBeds = new QuadBatch(budget * 2);
-        QuadBatch rails = new QuadBatch(budget * 2);
+        // The circular minimap draws clipped solid quads immediately. Avoid allocating
+        // fullscreen-sized GPU batches every frame when they will remain empty.
+        QuadBatch ties = new QuadBatch(circle == null ? budget : 0);
+        QuadBatch railBeds = new QuadBatch(circle == null ? budget * 2 : 0);
+        QuadBatch rails = new QuadBatch(circle == null ? budget * 2 : 0);
         graphics.enableScissor(view.x(), view.y(), view.x() + view.width(), view.y() + view.height());
         int drawn = 0;
         for (Segment line : lines) {
