@@ -197,15 +197,19 @@ public final class CreateCurves implements MapAnnotations.Source {
                         double length = ((Number) this.edgeLengthMethod.invoke(edge)).doubleValue();
                         // Match Create's own Bezier segment count: one tie per rendered section.
                         // The limit prevents malformed third-party graphs from overwhelming the GUI.
-                        int count = Math.max(1, Math.min(MAX_SAMPLES_PER_EDGE,
-                            ((Number) this.turnSegmentCountMethod.invoke(turn)).intValue()));
+                        int nativeSegments = Math.max(1,
+                            ((Number) this.turnSegmentCountMethod.invoke(turn)).intValue());
+                        int count = Math.min(MAX_SAMPLES_PER_EDGE, nativeSegments);
                         List<Segment> list = next.computeIfAbsent(dimension, ignored -> new ArrayList<>());
                         Vec3 previous = (Vec3) this.edgePositionMethod.invoke(edge, graph, 0.0);
                         double previousT = 0;
                         for (int i = 1; i <= count; i++) {
                             // Create's own arc-length lookup places sleepers at near-equal
                             // distances on tight bends; uniform i/count bunches them up.
-                            double t = ((Number) this.turnSegmentTimeMethod.invoke(turn, i)).doubleValue();
+                            // For exceptionally long curves, decimate *across the full edge*,
+                            // never truncate its last sections when limiting draw complexity.
+                            int sample = (int) Math.round(i * (double) nativeSegments / count);
+                            double t = ((Number) this.turnSegmentTimeMethod.invoke(turn, sample)).doubleValue();
                             Vec3 current = (Vec3) this.edgePositionMethod.invoke(edge, graph, t);
                             Vec3 up = (Vec3) this.edgeNormalMethod.invoke(edge, graph, (previousT + t) * .5);
                             Vec3 tangent = current.subtract(previous);
