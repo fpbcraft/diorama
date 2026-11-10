@@ -1,6 +1,7 @@
 package dev.diorama.compat;
 
 import dev.diorama.Claims;
+import dev.diorama.MapScreen;
 import dev.diorama.Diorama;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -299,9 +300,11 @@ public final class OpacClaims {
 			pending.remove(match);
 			Component message = Component.literal("OPAC " + match.action().name().toLowerCase(java.util.Locale.ROOT) + ": ");
 			int visible = 0;
+			boolean failure = false;
 			Object types = call(result, "getResultTypesIterable");
 			if (types instanceof Iterable<?> results) {
 				for (Object type : results) {
+					failure |= Boolean.TRUE.equals(type.getClass().getField("fail").get(type));
 					if (Boolean.TRUE.equals(type.getClass().getField("hidden").get(type))) {
 						continue;
 					}
@@ -326,9 +329,18 @@ public final class OpacClaims {
 			if (visible == 0) {
 				message = message.copy().append(Component.literal("Request processed; no status returned"));
 			}
-			mc.player.displayClientMessage(message, false);
+			feedback(mc, message, failure, false);
 		} catch (ReflectiveOperationException | RuntimeException e) {
 			Diorama.LOGGER.warn("Could not display OPAC's claim result", e);
+		}
+	}
+
+	/** Map-local result panel; actionbar fallback when the map was closed meanwhile. */
+	private static void feedback(Minecraft mc, Component message, boolean error, boolean pending) {
+		if (mc.screen instanceof MapScreen map) {
+			map.showClaimFeedback(message, error, pending);
+		} else if (mc.player != null) {
+			mc.player.displayClientMessage(message, true);
 		}
 	}
 
@@ -352,10 +364,15 @@ public final class OpacClaims {
 				case FORCELOAD -> call(manager, "requestAreaForceload", dim, left, top, right, bottom, true, null);
 				case UNFORCELOAD -> call(manager, "requestAreaForceload", dim, left, top, right, bottom, false, null);
 			}
+			boolean outside = outsideClaimDistance(mc, left, top) || outsideClaimDistance(mc, right, bottom);
+			feedback(mc, Component.literal(action.name().toLowerCase(java.util.Locale.ROOT)
+				+ " request sent; waiting for OPAC" + (outside ? " (part of the area is outside range)" : "")),
+				outside, true);
 			return true;
 		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
 			pending.clear();
 			warn(e);
+			feedback(mc, Component.literal("Could not submit OPAC claim request"), true, false);
 			return false;
 		}
 	}
