@@ -17,7 +17,8 @@ public final class Waypoint {
 		/** Added automatically where the player died. */
 		DEATH,
 		/** Set from the map's menu; never saved, so it's gone once the player leaves the world. */
-				/** Supplied by an add-on each frame; never stored or edited by Diorama. */
+		TEMPORARY,
+		/** Supplied by an add-on each frame; never stored or edited by Diorama. */
 		LIVE,
 		/** A waystone the Waystones mod told the client about ({@link Waystones}). Never saved, and Waystones names it. */
 		WAYSTONE,
