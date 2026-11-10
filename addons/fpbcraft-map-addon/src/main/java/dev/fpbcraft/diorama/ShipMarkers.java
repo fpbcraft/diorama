@@ -1,6 +1,7 @@
 package dev.fpbcraft.diorama;
 
 import dev.diorama.api.MapAnnotations;
+import dev.diorama.Settings;
 import dev.diorama.waypoint.Waypoint;
 import java.util.ArrayList;
 import java.util.List;
@@ -69,6 +70,7 @@ final class ShipMarkers implements MapAnnotations.Source {
 
     @Override
     public List<Waypoint> markers(String requestedDimension) {
-        return requestedDimension.equals(dimension) ? known : List.of();
+        return Settings.get().showSableShipMarkers && requestedDimension.equals(dimension)
+            ? known : List.of();
     }
 }
