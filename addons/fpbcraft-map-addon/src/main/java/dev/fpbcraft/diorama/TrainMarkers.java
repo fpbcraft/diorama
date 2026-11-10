@@ -1,6 +1,7 @@
 package dev.fpbcraft.diorama;
 
 import dev.diorama.api.MapAnnotations;
+import dev.diorama.Settings;
 import dev.diorama.waypoint.Waypoint;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -97,6 +98,11 @@ final class TrainMarkers implements MapAnnotations.Source {
 
     @Override
     public List<Waypoint> markers(String requestedDimension) {
-        return requestedDimension.equals(dimension) ? known : List.of();
+        if (!requestedDimension.equals(dimension)) return List.of();
+        Settings s = Settings.get();
+        if (s.showRailwayStations && s.showRailwayTrains) return known;
+        if (!s.showRailwayStations && !s.showRailwayTrains) return List.of();
+        return known.stream().filter(pin -> pin.initials.equals("ST")
+            ? s.showRailwayStations : s.showRailwayTrains).toList();
     }
 }
