@@ -24,6 +24,8 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.util.RandomSource;
 
 /**
  * Draws Create's Bezier track sections that have no corresponding block model in Diorama's
@@ -36,17 +38,18 @@ import net.minecraft.world.level.block.Block;
 public final class CreateCurves implements MapAnnotations.Source {
     private static final int SAMPLE_TICKS = 80;
     private static final int MAX_EDGES = 30_000;
-    private static final int MAX_SAMPLES_PER_EDGE = 72;
+    private static final int MAX_SAMPLES_PER_EDGE = 192;
     private static final int MAX_RENDER_SEGMENTS = 12_000;
     private static final int DEFAULT_SLEEPER = 0xFF765E48;
     private static final int STEEL_RAIL = 0xFFD2D2D0;
     private static final int GOLD_RAIL = 0xFFEAC36B;
 
-    private record Palette(int sleeper, int metal, float gauge, boolean monorail, boolean invisible) {
+    private record Palette(int sleeper, int metal, float gauge, boolean monorail, boolean invisible,
+        TextureAtlasSprite tieSprite, TextureAtlasSprite railSprite) {
     }
 
-    /** Each segment carries its own material colours, including Steam 'n' Rails variants. */
-    private record Segment(Vec3 from, Vec3 to, Palette palette) {
+    /** A strip of world-space curve with transverse normals, sampled at Create's tie spacing. */
+    private record Segment(Vec3 from, Vec3 to, Vec3 across, Palette palette) {
     }
 
     private Map<String, List<Segment>> segments = Map.of();
@@ -66,10 +69,13 @@ public final class CreateCurves implements MapAnnotations.Source {
     private final Method trackMaterialMethod;
     private final Method edgeLengthMethod;
     private final Method edgePositionMethod;
+    private final Method edgeNormalMethod;
+    private final Method turnSegmentCountMethod;
 
     private CreateCurves(Object railways, Field graphsField, Method nodesMethod, Method locateNodeMethod,
         Method connectionsFromMethod, Method locationDimensionMethod, Method isTurnMethod, Method getTurnMethod,
-        Field primaryField, Method trackMaterialMethod, Method edgeLengthMethod, Method edgePositionMethod) {
+        Field primaryField, Method trackMaterialMethod, Method edgeLengthMethod, Method edgePositionMethod,
+        Method edgeNormalMethod, Method turnSegmentCountMethod) {
         this.railways = railways;
         this.graphsField = graphsField;
         this.nodesMethod = nodesMethod;
@@ -82,6 +88,8 @@ public final class CreateCurves implements MapAnnotations.Source {
         this.trackMaterialMethod = trackMaterialMethod;
         this.edgeLengthMethod = edgeLengthMethod;
         this.edgePositionMethod = edgePositionMethod;
+        this.edgeNormalMethod = edgeNormalMethod;
+        this.turnSegmentCountMethod = turnSegmentCountMethod;
     }
 
     /** Register only when Create's NeoForge client railway graph API is available. */
@@ -105,7 +113,9 @@ public final class CreateCurves implements MapAnnotations.Source {
                 bezier.getField("primary"),
                 edge.getMethod("getTrackMaterial"),
                 edge.getMethod("getLength"),
-                edge.getMethod("getPosition", graph, double.class)));
+                edge.getMethod("getPosition", graph, double.class),
+                edge.getMethod("getNormal", graph, double.class),
+                bezier.getMethod("getSegmentCount")));
                     Diorama.LOGGER.info("[Diorama] Create curved-track provider registered");
         } catch (ClassNotFoundException ignored) {
             // Create is not installed: no optional provider.
@@ -173,7 +183,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                                 palette = paletteFor(material, looks);
                             } catch (ReflectiveOperationException | RuntimeException exception) {
                                 Diorama.LOGGER.warn("Could not read Create track material {}; using neutral rail palette", material, exception);
-                                palette = new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false);
+                                palette = new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false, null, null);
                             }
                             this.materialColours.put(material, palette);
                         }
@@ -182,12 +192,23 @@ public final class CreateCurves implements MapAnnotations.Source {
                         }
                         String dimension = dimensionName(this.locationDimensionMethod.invoke(location));
                         double length = ((Number) this.edgeLengthMethod.invoke(edge)).doubleValue();
-                        int count = Math.max(6, Math.min(MAX_SAMPLES_PER_EDGE, (int) Math.ceil(length / 2.0)));
+                        // Match Create's own Bezier segment count: one tie per rendered section.
+                        // The limit prevents malformed third-party graphs from overwhelming the GUI.
+                        int count = Math.max(1, Math.min(MAX_SAMPLES_PER_EDGE,
+                            ((Number) this.turnSegmentCountMethod.invoke(turn)).intValue()));
                         List<Segment> list = next.computeIfAbsent(dimension, ignored -> new ArrayList<>());
                         Vec3 previous = (Vec3) this.edgePositionMethod.invoke(edge, graph, 0.0);
                         for (int i = 1; i <= count; i++) {
                             Vec3 current = (Vec3) this.edgePositionMethod.invoke(edge, graph, i / (double) count);
-                            list.add(new Segment(previous, current, palette));
+                            Vec3 up = (Vec3) this.edgeNormalMethod.invoke(edge, graph, (i - .5) / count);
+                            Vec3 tangent = current.subtract(previous);
+                            Vec3 across = tangent.cross(up);
+                            if (across.lengthSqr() < 1e-6) {
+                                across = new Vec3(-tangent.z, 0, tangent.x);
+                            }
+                            if (across.lengthSqr() >= 1e-6) {
+                                list.add(new Segment(previous, current, across.normalize(), palette));
+                            }
                             previous = current;
                         }
                     }
@@ -207,12 +228,12 @@ public final class CreateCurves implements MapAnnotations.Source {
      */
     private static Palette paletteFor(Object material, BlockLooks looks) throws ReflectiveOperationException {
         if (material == null) {
-            return new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false);
+            return new Palette(DEFAULT_SLEEPER, STEEL_RAIL, 1, false, false, null, null);
         }
         Object id = material.getClass().getField("id").get(material);
         String name = String.valueOf(id);
         if (name.contains("phantom")) {
-            return new Palette(0, 0, 1, false, true);
+            return new Palette(0, 0, 1, false, true, null, null);
         }
 
         Object type = material.getClass().getField("trackType").get(material);
@@ -252,8 +273,12 @@ public final class CreateCurves implements MapAnnotations.Source {
                 }
             }
         }
+        TextureAtlasSprite ties = partialSprite(material, "tie");
+        if (ties == null && base != material) ties = partialSprite(base, "tie");
+        TextureAtlasSprite rails = partialSprite(material, "leftSegment");
+        if (rails == null && base != material) rails = partialSprite(base, "leftSegment");
         return new Palette(0xEF000000 | sleeper & 0xFFFFFF, 0xF5000000 | rail & 0xFFFFFF,
-            gauge, monorail, false);
+            gauge, monorail, false, ties, rails);
     }
 
     /**
@@ -290,6 +315,38 @@ public final class CreateCurves implements MapAnnotations.Source {
             }
         }
         return material;
+    }
+
+    /**
+     * Read a representative *actual texture sprite* from Create's partial models. The
+     * Steam 'n' Rails model holder supplies the wood tie and metal rail textures used
+     * by the in-world renderer; its wide/narrow variants may reuse a base material.
+     * This is optional: exotic renderers can fall back to BlockLooks colours.
+     */
+    private static TextureAtlasSprite partialSprite(Object material, String part) {
+        try {
+            Object holder = material.getClass().getMethod("getModelHolder").invoke(material);
+            if (holder == null) return null;
+            Object partial = holder.getClass().getMethod(part).invoke(holder);
+            if (partial == null) return null;
+            Object model = partial.getClass().getMethod("get").invoke(partial);
+            if (model == null) return null;
+            for (Method method : model.getClass().getMethods()) {
+                if (!method.getName().equals("getQuads") || method.getParameterCount() != 3) continue;
+                Object quads = method.invoke(model, null, null, RandomSource.create(42L));
+                if (quads instanceof Iterable<?> iterable) {
+                    for (Object quad : iterable) {
+                        Object sprite = quad.getClass().getMethod("getSprite").invoke(quad);
+                        if (sprite instanceof TextureAtlasSprite texture) return texture;
+                    }
+                }
+            }
+            // Some partial models expose only a particle texture without standard quads.
+            Object sprite = model.getClass().getMethod("getParticleIcon").invoke(model);
+            return sprite instanceof TextureAtlasSprite texture ? texture : null;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            return null;
+        }
     }
 
     private static int colourFromIngredient(BlockLooks looks, Ingredient ingredient) {
