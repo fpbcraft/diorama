@@ -1,6 +1,7 @@
 package dev.diorama;
 
 import dev.diorama.compat.FtbChunks;
+import dev.diorama.compat.OpacClaims;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,6 +51,8 @@ public final class Claims {
 	/** Regions changed since the last snapshot, by dimension. */
 	private static final Map<ResourceKey<Level>, Set<Region>> changed = new HashMap<>();
 	private static int ticks;
+	/** Only one claims provider drives the shared renderer at a time. OPAC wins when the server has it. */
+	private static boolean usingOpac;
 	/** Time spent on claims this tick, and the most in any tick since {@link #resetSlowestTick}. For tests. */
 	private static long tickNanos;
 	private static int tickUpdates;
@@ -67,7 +70,7 @@ public final class Claims {
 
 	/** Whether there's anything to read claims from, so settings about them are worth showing. */
 	public static boolean supported() {
-		return FtbChunks.available();
+		return FtbChunks.available() || OpacClaims.available(Minecraft.getInstance());
 	}
 
 	/** Where a chunk's claim is kept in its region's array. */
@@ -83,6 +86,9 @@ public final class Claims {
 	 * team FTB Teams doesn't know owns nothing.
 	 */
 	public static void updated(ResourceKey<Level> dimension, int chunkX, int chunkZ, UUID team, boolean forceLoaded) {
+		if (usingOpac) {
+			return;
+		}
 		Claim plain = team == null || team.equals(NO_TEAM) ? null : teams.get(team);
 		if (plain == null && team != null && !team.equals(NO_TEAM)) {
 			Optional<Claim> found = FtbChunks.team(team);
@@ -92,6 +98,25 @@ public final class Claims {
 			}
 		}
 		Claim claim = plain == null ? null : forceLoaded ? plain.asForceLoaded() : plain;
+		put(dimension, chunkX, chunkZ, claim);
+	}
+
+	/** OPAC's already resolved owner, colour, name and force-loading, from its client API. */
+	public static void updatedOpac(ResourceKey<Level> dimension, int chunkX, int chunkZ, @Nullable Claim claim) {
+		if (usingOpac) {
+			put(dimension, chunkX, chunkZ, claim);
+		}
+	}
+
+	/** Clears previous claims before a fresh OPAC region sync or a dimension change. */
+	public static void resetOpac() {
+		known.clear();
+		teams.clear();
+		changed.clear();
+		current = NONE;
+	}
+
+	private static void put(ResourceKey<Level> dimension, int chunkX, int chunkZ, @Nullable Claim claim) {
 		Region region = new Region(chunkX >> 5, chunkZ >> 5);
 		Map<Region, Claim[]> regions = known.computeIfAbsent(dimension, d -> new HashMap<>());
 		Claim[] chunks = regions.get(region);
@@ -118,10 +143,20 @@ public final class Claims {
 	/** Called every client tick: makes a new snapshot when the claims in the player's dimension changed. */
 	public static void tick(Minecraft mc) {
 		long start = System.nanoTime();
-		if (++ticks % TEAM_CHECK_TICKS == 0) {
+		boolean opac = mc.level != null && OpacClaims.available(mc);
+		if (opac != usingOpac) {
+			resetOpac();
+			usingOpac = opac;
+			if (opac) {
+				OpacClaims.reset();
+			}
+		}
+		if (opac) {
+			OpacClaims.tick(mc);
+		} else if (++ticks % TEAM_CHECK_TICKS == 0) {
 			checkTeams();
 		}
-		boolean shown = mc.level != null && Settings.get().claims != Settings.ClaimsShown.OFF && FtbChunks.available();
+		boolean shown = mc.level != null && Settings.get().claims != Settings.ClaimsShown.OFF && (opac || FtbChunks.available());
 		ResourceKey<Level> dimension = shown ? mc.level.dimension() : null;
 		Snapshot snapshot = current;
 		if (dimension == null) {
@@ -222,6 +257,8 @@ public final class Claims {
 
 	/** Forgets every claim, on leaving a world or moving to another server: the next one sends its own. */
 	public static void clear() {
+		usingOpac = false;
+		OpacClaims.reset();
 		known.clear();
 		teams.clear();
 		changed.clear();
