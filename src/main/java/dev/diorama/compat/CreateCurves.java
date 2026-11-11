@@ -46,7 +46,7 @@ public final class CreateCurves implements MapAnnotations.Source {
     }
 
     /** A strip of world-space curve with transverse normals, sampled at Create's tie spacing. */
-    static record Segment(Vec3 from, Vec3 to, Vec3 across, Vec3 up, Palette palette, boolean girder) {
+    static record Segment(Vec3 from, Vec3 to, Vec3 across, Vec3 up, Palette palette, boolean girder, boolean straight) {
     }
 
     private Map<String, List<Segment>> segments = Map.of();
@@ -130,7 +130,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                 edge.getMethod("getNormal", graph, double.class),
                 bezier.getMethod("getSegmentCount"),
                 bezier.getMethod("getSegmentT", int.class)));
-                    Diorama.LOGGER.info("[Diorama] Create curved-track provider registered");
+                    Diorama.LOGGER.info("[Diorama] Create railway renderer registered for straight and curved tracks");
         } catch (ClassNotFoundException ignored) {
             // Create is not installed: no optional provider.
         } catch (ReflectiveOperationException | LinkageError exception) {
@@ -226,8 +226,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                         }
                         String dimension = dimensionName(this.locationDimensionMethod.invoke(location));
                         double length = ((Number) this.edgeLengthMethod.invoke(edge)).doubleValue();
-                        // Match Create's own Bezier segment count: one tie per rendered section.
-                        // The limit prevents malformed third-party graphs from overwhelming the GUI.
+                        // Sample all Create graph edges, straight and curved, at matching sleeper spacing.
                         // Bezier curves already carry an arc-length lookup; straight edges
                         // use equally spaced half-block samples. Both flow into the same
                         // Diorama-style rasterizer, with the same palettes and gauge.
@@ -255,7 +254,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                                 across = new Vec3(-tangent.z, 0, tangent.x);
                             }
                             if (across.lengthSqr() >= 1e-6) {
-                                list.add(new Segment(previous, current, across.normalize(), up.normalize(), palette, girder));
+                                list.add(new Segment(previous, current, across.normalize(), up.normalize(), palette, girder, !curved));
                             }
                             previous = current;
                             previousT = t;
