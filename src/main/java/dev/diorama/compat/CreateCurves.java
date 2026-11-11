@@ -62,6 +62,9 @@ public final class CreateCurves implements MapAnnotations.Source {
     private final Method connectionsFromMethod;
     private final Method locationDimensionMethod;
     private final Method isTurnMethod;
+    private final Method isInterDimensionalMethod;
+    private final Method nodeIdMethod;
+    private final Field edgeEndField;
     private final Method getTurnMethod;
     private final Field primaryField;
     private final Field hasGirderField;
@@ -73,7 +76,8 @@ public final class CreateCurves implements MapAnnotations.Source {
     private final Method turnSegmentTimeMethod;
 
     private CreateCurves(Object railways, Field graphsField, Method nodesMethod, Method locateNodeMethod,
-        Method connectionsFromMethod, Method locationDimensionMethod, Method isTurnMethod, Method getTurnMethod,
+        Method connectionsFromMethod, Method locationDimensionMethod, Method isTurnMethod, Method isInterDimensionalMethod,
+        Method nodeIdMethod, Field edgeEndField, Method getTurnMethod,
         Field primaryField, Field hasGirderField, Method trackMaterialMethod, Method edgeLengthMethod, Method edgePositionMethod,
         Method edgeNormalMethod, Method turnSegmentCountMethod, Method turnSegmentTimeMethod) {
         this.railways = railways;
@@ -83,6 +87,9 @@ public final class CreateCurves implements MapAnnotations.Source {
         this.connectionsFromMethod = connectionsFromMethod;
         this.locationDimensionMethod = locationDimensionMethod;
         this.isTurnMethod = isTurnMethod;
+        this.isInterDimensionalMethod = isInterDimensionalMethod;
+        this.nodeIdMethod = nodeIdMethod;
+        this.edgeEndField = edgeEndField;
         this.getTurnMethod = getTurnMethod;
         this.primaryField = primaryField;
         this.hasGirderField = hasGirderField;
@@ -111,6 +118,9 @@ public final class CreateCurves implements MapAnnotations.Source {
                 graph.getMethod("getConnectionsFrom", node),
                 location.getMethod("getDimension"),
                 edge.getMethod("isTurn"),
+                edge.getMethod("isInterDimensional"),
+                node.getMethod("getNetId"),
+                edge.getField("node2"),
                 edge.getMethod("getTurn"),
                 bezier.getField("primary"),
                 bezier.getField("hasGirder"),
@@ -177,12 +187,28 @@ public final class CreateCurves implements MapAnnotations.Source {
                             this.pixels.update(this.segments);
                             return;
                         }
-                        if (!Boolean.TRUE.equals(this.isTurnMethod.invoke(edge))) {
+                        if (Boolean.TRUE.equals(this.isInterDimensionalMethod.invoke(edge))) {
+                            // Interdimensional portals have no actual straight rail geometry.
                             continue;
                         }
-                        Object turn = this.getTurnMethod.invoke(edge);
-                        if (turn == null || !this.primaryField.getBoolean(turn)) {
-                            continue;
+                        boolean curved = Boolean.TRUE.equals(this.isTurnMethod.invoke(edge));
+                        Object turn = curved ? this.getTurnMethod.invoke(edge) : null;
+                        boolean girder = false;
+                        if (curved) {
+                            if (turn == null || !this.primaryField.getBoolean(turn)) {
+                                // Every Bezier edge has a mirrored secondary connection.
+                                continue;
+                            }
+                            girder = this.hasGirderField.getBoolean(turn);
+                        } else {
+                            // A straight edge is stored in *both* directions in Create's
+                            // graph. Only rasterize the canonical one.
+                            Object other = this.edgeEndField.get(edge);
+                            int fromId = ((Number) this.nodeIdMethod.invoke(node)).intValue();
+                            int toId = ((Number) this.nodeIdMethod.invoke(other)).intValue();
+                            if (fromId >= toId) {
+                                continue;
+                            }
                         }
                         Object material = this.trackMaterialMethod.invoke(edge);
                         Palette palette = this.materialColours.get(material);
@@ -202,9 +228,12 @@ public final class CreateCurves implements MapAnnotations.Source {
                         double length = ((Number) this.edgeLengthMethod.invoke(edge)).doubleValue();
                         // Match Create's own Bezier segment count: one tie per rendered section.
                         // The limit prevents malformed third-party graphs from overwhelming the GUI.
-                        boolean hasGirder = this.hasGirderField.getBoolean(turn);
-                        int nativeSegments = Math.max(1,
-                            ((Number) this.turnSegmentCountMethod.invoke(turn)).intValue());
+                        // Bezier curves already carry an arc-length lookup; straight edges
+                        // use equally spaced half-block samples. Both flow into the same
+                        // Diorama-style rasterizer, with the same palettes and gauge.
+                        int nativeSegments = curved
+                            ? Math.max(1, ((Number) this.turnSegmentCountMethod.invoke(turn)).intValue())
+                            : Math.max(1, (int) Math.ceil(length * 2.0));
                         int count = Math.min(MAX_SAMPLES_PER_EDGE, nativeSegments);
                         List<Segment> list = next.computeIfAbsent(dimension, ignored -> new ArrayList<>());
                         Vec3 previous = (Vec3) this.edgePositionMethod.invoke(edge, graph, 0.0);
@@ -215,7 +244,9 @@ public final class CreateCurves implements MapAnnotations.Source {
                             // For exceptionally long curves, decimate *across the full edge*,
                             // never truncate its last sections when limiting draw complexity.
                             int sample = (int) Math.round(i * (double) nativeSegments / count);
-                            double t = ((Number) this.turnSegmentTimeMethod.invoke(turn, sample)).doubleValue();
+                            double t = curved
+                                ? ((Number) this.turnSegmentTimeMethod.invoke(turn, sample)).doubleValue()
+                                : sample / (double) nativeSegments;
                             Vec3 current = (Vec3) this.edgePositionMethod.invoke(edge, graph, t);
                             Vec3 up = (Vec3) this.edgeNormalMethod.invoke(edge, graph, (previousT + t) * .5);
                             Vec3 tangent = current.subtract(previous);
@@ -224,7 +255,7 @@ public final class CreateCurves implements MapAnnotations.Source {
                                 across = new Vec3(-tangent.z, 0, tangent.x);
                             }
                             if (across.lengthSqr() >= 1e-6) {
-                                list.add(new Segment(previous, current, across.normalize(), up.normalize(), palette, hasGirder));
+                                list.add(new Segment(previous, current, across.normalize(), up.normalize(), palette, girder));
                             }
                             previous = current;
                             previousT = t;
