@@ -50,12 +50,13 @@ source disable only that source for the session.
 
 ## Compatibility roadmap
 
-- **Create curved tracks:** `compat/CreateCurves` reads the synchronized Create track graph.
-  `compat/CurveRaster` paints rails and sleepers onto Diorama's 4-pixels-per-block map grid,
-  applying its map lighting, mipmaps, sampling and terrain-depth masking rather than rendering
-  the original Minecraft sprites. Curves with `BezierConnection.hasGirder` also rasterize a
-  continuous shaded metal support; curves without girders still render normally. This provider
-  can move to a separate add-on after performance and visual testing.
+- **Create railway tracks:** `compat/CreateCurves` reads synchronized Create graph edges,
+  including ordinary straight sections and Bézier curves, deduplicating their mirrored edges.
+  Both use `compat/CurveRaster`, which draws rails and sleepers on Diorama's 4-pixels-per-block
+  map grid with the same material colours, grade, mipmaps and terrain-depth masking. Curves
+  with `BezierConnection.hasGirder` add a metal support; plain curves and straight sections
+  do not gain artificial girders. Other mods' connected railway networks use their registered
+  Create track materials too. This provider can move to a separate add-on after testing.
 - **MineColonies:** source markers for colony centres, buildings, construction orders
   and human-actionable requests. Requests are not persisted as ordinary waypoints.
 - **Create Railways Navigator:** source markers for stations/trains and optional departure
@@ -70,12 +71,14 @@ live entirely in separate JARs.
 
 ## Compatibility caveats
 
-Create curves remain a **transient overlay**, not ordinary terrain blocks. The overlay
-now generates cached, mipmapped map-pixel textures at the same resolution as terrain and
-uses Diorama's surface-depth samples for terrain occlusion. Under fog of war it hides
-pixels whose terrain surface is unknown; in-memory railway network information itself is
-still provided by Create. Texture caches are bounded, geometry refreshes every 80 ticks,
-and no curved-track pixels are written into Diorama's saved map tiles. This approximates
-the track top, sleepers and the optional girder, rather than ray-tracing every detailed
-mesh face or drawing the original sprite textures. Test different gauges, slopes,
-biomes, map styles and both girder modes on the actual modpack.
+Create railway geometry remains a **transient overlay** and does not replace
+Diorama's saved terrain pixels. Normal straight-track blocks therefore still exist in
+the underlying baked terrain image; the same map-styled sleeper/rail geometry is
+superimposed on the two types to reduce their difference. To avoid permanently hiding
+unconnected track blocks, this first pass does not remove the original straight-block
+rendering from tiles. The renderer prevents that already-baked geometry from depth-
+occluding the new pixels. Fog-of-war unknown terrain hides synced graph data. Geometry
+refreshes every 80 ticks, with bounded sampling and texture caches. For a perfect
+replacement, the terrain baker would need selective masking of graph-owned straight
+track blocks and safe invalidation of existing saved tiles; do not blanket-hide every
+Create track block or unrelated/disconnected pieces disappear.
