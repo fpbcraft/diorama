@@ -77,7 +77,7 @@ the underlying baked terrain image; the same map-styled sleeper/rail geometry is
 superimposed on the two types to reduce their difference. To avoid permanently hiding
 unconnected track blocks, this first pass does not remove the original straight-block
 rendering from tiles. The renderer prevents that already-baked geometry from depth-
-occluding the new pixels. Fog-of-war unknown terrain hides synced graph data. Geometry
+occluding the new pixels. Terrain whose depth is not yet known also hides graph rails with fog of war off; the overlay reveals them only after the asynchronous surface trace confirms they are in front of the ground. Straight and curved tracks now share the same 0.3-block depth tolerance. Geometry
 refreshes every 80 ticks, with bounded sampling and texture caches. For a perfect
 replacement, the terrain baker would need selective masking of graph-owned straight
 track blocks and safe invalidation of existing saved tiles; do not blanket-hide every
