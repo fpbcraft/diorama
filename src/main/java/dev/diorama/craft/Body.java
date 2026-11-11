@@ -13,6 +13,11 @@ public interface Body {
 	/** The same from session to session, so a parked craft is still known when it comes back. */
 	UUID id();
 
+	/** Transient structures should vanish when no longer client-visible, not remain as parked map data. */
+	default boolean persistWhenUnloaded() {
+		return true;
+	}
+
 	/** Its blocks as they are now, or null if they can't be read. */
 	@Nullable Blocks read(BlockLooks looks);
 

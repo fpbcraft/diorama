@@ -1,0 +1,53 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'dev.fpbcraft.diorama'
+version = '0.1.0'
+base.archivesName = 'fpbcraft-diorama-addon'
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = '21.1.263'
+    mods {
+        fpbcraftdiorama {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+// Use the exact matching core artifact, not every (possibly stale) Diorama jar in build/libs.
+// The annotation API is compiled into Diorama by the parent project's Stonecutter build.
+def dioramaProperties = new Properties()
+file('../../gradle.properties').withInputStream { dioramaProperties.load(it) }
+def dioramaJar = file("../../versions/1.21.1-neoforge/build/libs/diorama-${dioramaProperties.getProperty('mod_version')}+neoforge-1.21.1.jar")
+
+dependencies {
+    // The add-on is a separate jar and does not package Diorama itself.
+    compileOnly files(dioramaJar)
+}
+
+tasks.named('compileJava', JavaCompile) {
+    doFirst {
+        if (!dioramaJar.isFile()) {
+            throw new GradleException(
+                "Diorama's NeoForge 1.21.1 jar is missing. First run from the repository root: " +
+                "Run ./gradlew :1.21.1-neoforge:build from the repository root before building the add-on."
+            )
+        }
+        new java.util.zip.ZipFile(dioramaJar).withCloseable { jar ->
+            if (jar.getEntry('dev/diorama/api/MapAnnotations.class') == null) {
+                throw new GradleException(
+                    "Diorama jar does not include MapAnnotations (old build): ${dioramaJar}. " +
+                    "Rebuild the feat/fpbcraft-map-addon branch's Diorama core first."
+                )
+            }
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

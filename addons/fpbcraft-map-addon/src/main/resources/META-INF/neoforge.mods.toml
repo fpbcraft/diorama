@@ -1,0 +1,28 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "fpbcraftdiorama"
+version = "0.1.0"
+displayName = "FPBCraft Diorama Integrations"
+description = "Optional live map markers for MineColonies, Create stations and trains, and Aeronautics ships."
+authors = "FPBCraft"
+
+[[dependencies.fpbcraftdiorama]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.178,)"
+side = "CLIENT"
+
+[[dependencies.fpbcraftdiorama]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+side = "CLIENT"
+
+[[dependencies.fpbcraftdiorama]]
+modId = "diorama"
+type = "required"
+versionRange = "[0.9.0,)"
+side = "CLIENT"
