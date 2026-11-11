@@ -79,17 +79,14 @@ public final class SettingsScreen extends Screen {
 		SettingsTab minimap = new SettingsTab("diorama.settings.minimap");
 		minimap.toggle("minimap_shown", () -> s.minimap, v -> s.minimap = v);
 		minimap.toggle("compass", () -> s.compass, v -> s.compass = v);
-		minimap.toggle("coordinates", () -> s.coordinates, v -> s.coordinates = v);
-		minimap.toggle("biome", () -> s.biome, v -> s.biome = v);
 		minimap.toggle("auto_caves", () -> s.autoCaves, v -> s.autoCaves = v);
 		minimap.toggle("prefer_surface", () -> s.preferSurface, v -> s.preferSurface = v);
 		minimap.toggle("legible_caves", () -> s.legibleCaves, v -> s.legibleCaves = v);
 		Settings.Corner[] corners = Settings.Corner.values();
 		minimap.cycle("corner", () -> s.minimapCorner.ordinal(), corners.length, i -> s.minimapCorner = corners[i],
 			i -> Component.translatable("diorama.settings.corner." + corners[i].name().toLowerCase(Locale.ROOT)));
-		minimap.choice("game_time", Settings.GameTime.values(), () -> s.gameTime, v -> s.gameTime = v);
-		// Beside Corner, so the tab doesn't grow.
-		minimap.lastTwoSideBySide();
+		// The text controls live on their own tab, keeping minimap layout controls compact.
+		// Other minimap-specific controls remain in this first tab.
 		int sizes = (Settings.MAX_SIZE - Settings.MIN_SIZE) / Settings.SIZE_STEP + 1;
 		minimap.slider("size", (s.minimapSize - Settings.MIN_SIZE) / Settings.SIZE_STEP, sizes,
 			i -> s.minimapSize = Settings.MIN_SIZE + i * Settings.SIZE_STEP, i -> Component.literal(Integer.toString(Settings.MIN_SIZE + i * Settings.SIZE_STEP)));
@@ -109,6 +106,17 @@ public final class SettingsScreen extends Screen {
 		minimap.choice("shape", Settings.Shape.values(), () -> s.minimapShape, v -> s.minimapShape = v);
 		minimap.choice("frame", Settings.Frame.values(), () -> s.minimapFrame, v -> s.minimapFrame = v);
 		minimap.lastTwoSideBySide();
+
+		SettingsTab info = new SettingsTab("diorama.settings.info");
+		info.toggle("coordinates", () -> s.coordinates, v -> s.coordinates = v);
+		info.toggle("biome", () -> s.biome, v -> s.biome = v);
+		info.toggle("info_opac_claim", () -> s.infoOpacClaim, v -> s.infoOpacClaim = v);
+		info.toggle("info_season", () -> s.infoSeason, v -> s.infoSeason = v);
+		info.toggle("info_local_time", () -> s.infoLocalTime, v -> s.infoLocalTime = v);
+		info.toggle("info_weather", () -> s.infoWeather, v -> s.infoWeather = v);
+		info.toggle("info_direction", () -> s.infoDirection, v -> s.infoDirection = v);
+		info.toggle("info_dimension", () -> s.infoDimension, v -> s.infoDimension = v);
+		info.choice("game_time", Settings.GameTime.values(), () -> s.gameTime, v -> s.gameTime = v);
 
 		SettingsTab radar = new SettingsTab("diorama.settings.radar");
 		radar.toggle("radar_minimap", () -> s.radarOnMinimap, v -> s.radarOnMinimap = v);
@@ -204,17 +212,17 @@ public final class SettingsScreen extends Screen {
 		// Vanilla's tab bar, over the settings side instead of the whole screen. It's drawn by hand
 		// (extractRenderState), clipped to the side: its separator line runs on past the last tab.
 		//? if >=26.2 {
-		MenuTabBar bar = MenuTabBar.builder(this.tabManager, this.side).addTabs(minimap, radar, overlays, waypoints, look).build();
+		MenuTabBar bar = MenuTabBar.builder(this.tabManager, this.side).addTabs(minimap, info, radar, overlays, waypoints, look).build();
 		bar.arrangeElements(this.side);
 		//?} else if >=26.1 {
-		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(minimap, radar, overlays, waypoints, look).build();
+		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(minimap, info, radar, overlays, waypoints, look).build();
 		bar.updateWidth(this.side);
 		*///?} else {
-		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(minimap, radar, overlays, waypoints, look).build();
+		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(minimap, info, radar, overlays, waypoints, look).build();
 		bar.setWidth(this.side);
 		bar.arrangeElements();
 		*///?}
-		this.tabs = List.of(minimap, radar, overlays, waypoints, look);
+		this.tabs = List.of(minimap, info, radar, overlays, waypoints, look);
 		this.tabBar = this.addWidget(bar);
 		this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> this.onClose())
 			.bounds(this.side / 2 - 100, this.height - 26, 200, 20).build());
@@ -515,7 +523,7 @@ public final class SettingsScreen extends Screen {
 		}
 	}
 
-	// Ctrl+Tab and Ctrl+1 to 5 switch tabs, as in vanilla's tabbed screens, whatever has focus.
+	// Ctrl+Tab and Ctrl+1 to 6 switch tabs, as in vanilla's tabbed screens, whatever has focus.
 	//? if >=1.21.9 {
 	@Override
 	public boolean keyPressed(KeyEvent event) {

@@ -75,6 +75,13 @@ public final class Settings {
 	public boolean coordinates = true;
 	public boolean biome = true;
 	public GameTime gameTime = GameTime.OFF;
+	/** Optional HUD text rows below the minimap; separate from the map's visual overlays. */
+	public boolean infoOpacClaim = true;
+	public boolean infoSeason = true;
+	public boolean infoLocalTime = true;
+	public boolean infoWeather = true;
+	public boolean infoDirection = false;
+	public boolean infoDimension = false;
 	/** Whether the sky view is drawn by day, at night, or as the world's time has it; see {@code NightLook}. */
 	public DayNight dayNight = DayNight.FOLLOW;
 	public boolean autoCaves = true;

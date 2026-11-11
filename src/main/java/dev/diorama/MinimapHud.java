@@ -3,6 +3,7 @@ package dev.diorama;
 import dev.diorama.api.MapAnnotations;
 import dev.diorama.bake.TileKey;
 import dev.diorama.compat.Cobblemon;
+import dev.diorama.compat.EclipticSeasons;
 import dev.diorama.render.Circle;
 import dev.diorama.render.MapLevel;
 import dev.diorama.render.MapViewport;
@@ -18,6 +19,9 @@ import dev.diorama.waypoint.WaypointStore;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElement;
 //? if >=1.21 {
 import net.minecraft.client.DeltaTracker;
@@ -51,6 +55,7 @@ public final class MinimapHud implements HudElement {
 	private static final long LAYER_HOLD_MS = 3000;
 	private static final long LAYER_FADE_MS = 300;
 	private static final int INFO_COLOR = 0xFFFFFFFF;
+	private static final DateTimeFormatter LOCAL_CLOCK_FORMAT = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT);
 	/** The game time once it's dark enough for a bed, which can be earlier than the clock says in a storm. */
 	private static final int BED_TIME_COLOR = 0xFF9CC4FF;
 	/** Whether the game's effect icon drawing ran to the end since the minimap last looked (see EffectIconsMixin). */
@@ -178,6 +183,11 @@ public final class MinimapHud implements HudElement {
 		Vec3 pos = viewer.getPosition(partialTick);
 		Font font = mc.font;
 		List<InfoLine> info = this.infoLines(settings, viewer, mc);
+		// Small windows still get a usable map; the lowest-priority rows are omitted.
+		int maxRows = Math.max(0, (graphics.guiHeight() - 2 * MARGIN - effects - SMALLEST - 4) / 10);
+		if (info.size() > maxRows) {
+			info = info.subList(0, maxRows);
+		}
 		int infoHeight = info.size() * 10;
 		int size = this.fit(wanted, graphics.guiWidth(), graphics.guiHeight(), top, effects, infoHeight);
 		int x = right ? graphics.guiWidth() - size - MARGIN : MARGIN;
@@ -229,10 +239,12 @@ public final class MinimapHud implements HudElement {
 		int textY = y + size + 4;
 		int left = x - 2;
 		int textRight = x + size + 2;
+		int maxTextWidth = Math.max(32, Math.min(240, (right ? x + size : graphics.guiWidth() - x) - MARGIN));
 		for (InfoLine line : info) {
-			int w = font.width(line.text());
+			String shown = ellipsize(font, line.text(), maxTextWidth);
+			int w = font.width(shown);
 			int tx = right ? x + size - w : x;
-			graphics.text(font, line.text(), tx, textY, line.color(), true);
+			graphics.text(font, shown, tx, textY, line.color(), true);
 			left = Math.min(left, tx - 1);
 			textRight = Math.max(textRight, tx + w + 1);
 			textY += 10;
@@ -322,6 +334,18 @@ public final class MinimapHud implements HudElement {
 		graphics.text(font, letter, cx - w / 2, y, color, false);
 	}
 
+	/** Keep long server claim names on-screen without wasting most of the screen's width. */
+	private static String ellipsize(Font font, String text, int width) {
+		if (font.width(text) <= width) {
+			return text;
+		}
+		int end = text.length();
+		while (end > 0 && font.width(text.substring(0, end) + "…") > width) {
+			end--;
+		}
+		return end == 0 ? "…" : text.substring(0, end) + "…";
+	}
+
 	private List<InfoLine> infoLines(Settings settings, Entity viewer, Minecraft mc) {
 		List<InfoLine> lines = new ArrayList<>();
 		BlockPos pos = viewer.blockPosition();
@@ -332,6 +356,29 @@ public final class MinimapHud implements HudElement {
 			mc.level.getBiome(pos).unwrapKey().ifPresent(key ->
 				lines.add(new InfoLine(Component.translatable(key.identifier().toLanguageKey("biome")).getString(), INFO_COLOR)));
 		}
+		if (settings.infoOpacClaim) {
+			String claim = Claims.opacClaimName(mc.level.dimension(), pos.getX() >> 4, pos.getZ() >> 4);
+			if (claim != null && !claim.isBlank()) {
+				lines.add(new InfoLine(Component.translatable("diorama.minimap.claim", claim).getString(), INFO_COLOR));
+			}
+		}
+		EclipticSeasons.Climate climate = settings.infoSeason || settings.infoWeather
+			? EclipticSeasons.current(mc.level, pos) : null;
+		if (settings.infoSeason && climate != null && climate.season() != null) {
+			lines.add(new InfoLine(Component.translatable("diorama.minimap.season", climate.season()).getString(), INFO_COLOR));
+		}
+		if (settings.infoLocalTime) {
+			lines.add(new InfoLine(Component.translatable("diorama.minimap.local_time",
+				LocalTime.now().format(LOCAL_CLOCK_FORMAT)).getString(), INFO_COLOR));
+		}
+		if (settings.infoWeather && mc.level.dimensionType().hasSkyLight()) {
+			EclipticSeasons.Weather weather = climate == null
+				? mc.level.isThundering() ? EclipticSeasons.Weather.THUNDER
+					: mc.level.isRainingAt(pos) ? EclipticSeasons.Weather.RAIN : EclipticSeasons.Weather.CLEAR
+				: climate.weather();
+			String label = Component.translatable("diorama.minimap.weather." + weather.name().toLowerCase(Locale.ROOT)).getString();
+			lines.add(new InfoLine(Component.translatable("diorama.minimap.weather", label).getString(), INFO_COLOR));
+		}
 		if (settings.gameTime != Settings.GameTime.OFF) {
 			//? if <1.21.2 {
 			/*// Until 1.21.2 the client worked this out only when a level loaded.
@@ -340,6 +387,14 @@ public final class MinimapHud implements HudElement {
 			// The Overworld's clock in every dimension, as Xaero's Minimap reads it: the Nether and
 			// the End have no day of their own, and this is when the player's bed would work.
 			lines.add(new InfoLine(gameTime(settings.gameTime, mc.level.getOverworldClockTime()), mc.level.isDarkOutside() ? BED_TIME_COLOR : INFO_COLOR));
+		}
+		if (settings.infoDirection) {
+			String direction = viewer.getDirection().getName().toUpperCase(Locale.ROOT);
+			lines.add(new InfoLine(Component.translatable("diorama.minimap.direction", direction).getString(), INFO_COLOR));
+		}
+		if (settings.infoDimension) {
+			String dimension = mc.level.dimension().identifier().toString();
+			lines.add(new InfoLine(Component.translatable("diorama.minimap.dimension", dimension).getString(), INFO_COLOR));
 		}
 		return lines;
 	}
