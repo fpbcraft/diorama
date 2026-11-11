@@ -226,8 +226,9 @@ final class CurveRaster {
     /**
      * The depth field stores the same absolute camera distance as TileSurface.near.
      * Recut only when the terrain surface images change, rather than uploading a new
-     * curve texture every frame. An unavailable terrain sample does not hide the curve,
-     * except in fog-of-war where it could reveal unknown rail networks.
+     * curve texture every frame. Unknown terrain is treated as occluding the
+     * railway overlay, even without fog of war: the Create graph contains tunnel
+     * tracks that must never be displayed through the surface.
      */
     private static void updateTexture(Tile tile, MapLevel map) {
         SurfaceArea surface = null;
@@ -236,7 +237,12 @@ final class CurveRaster {
                 tile.key.tv() * SIZE + tile.y0, tile.key.tu() * SIZE + tile.x1,
                 tile.key.tv() * SIZE + tile.y1);
         }
-        if (tile.texture != null && surface != null && tile.surface != null && surface.same(tile.surface)) {
+        // A SurfaceArea can exist while its TileSurface jobs are still pending.
+        // The identity comparison notices when those asynchronous traces arrive.
+        // When both are null, keep the already-hidden texture until terrain exists.
+        boolean unchanged = surface == null ? tile.surface == null
+            : tile.surface != null && surface.same(tile.surface);
+        if (tile.texture != null && unchanged) {
             return;
         }
         int[] output = tile.pixels.clone();
