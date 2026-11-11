@@ -167,7 +167,7 @@
 	"diorama.gpu_baking.failed": "GPU baking didn't match on this graphics card, so Diorama is drawing the map on the processor again. The game log has the details.",
 	"diorama.settings.overlays": "Overlays",
 	"diorama.settings.addon_layers": "Integrations",
-	"diorama.settings.show_create_curves": "Curved railway tracks",
+	"diorama.settings.show_create_curves": "Create railway styling (straight and curved)",
 	"diorama.settings.show_colony_centers": "Colony centers",
 	"diorama.settings.show_colony_buildings": "Colony buildings",
 	"diorama.settings.show_colony_construction": "Colony construction",
