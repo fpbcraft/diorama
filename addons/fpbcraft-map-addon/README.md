@@ -59,12 +59,15 @@ Diorama jar, rather than bundling Diorama or resolving an older jar. It targets 
 - Compact icon badges replace the always-on labels for live markers. Full details appear
   on hover. Separate toggles under Diorama Settings > Overlays control each integration;
   ships render as blocks by default, not as name pins.
-- Curved Create/Steam 'n' Rails sections are rasterized by Diorama PR #2 onto the **same
-  four-pixels-per-block map grid** as ordinary tracks, with Diorama's material colours,
-  sunlight/grade, mipmaps and terrain occlusion. Tracks with `BezierConnection.hasGirder`
-  gain a continuous shaded metal beam below the rails; tracks without one still render.
-  No original Minecraft sprite textures are drawn by the overlay. This remains a
-  map-styled reconstruction rather than full per-triangle 3D ray tracing.
+- Create/Steam 'n' Rails **straight and curved graph edges** are rendered through
+  Diorama PR #2's shared 4-pixels-per-block map raster with the same material palette,
+  lighting/grade and mipmaps. Reversed graph edges are deduplicated; only curved
+  connections with `BezierConnection.hasGirder` gain the additional metal support.
+  Unlike the older direct-texture overlay, the same map-styled geometry now applies
+  across both rail types. Diorama's existing straight blocks still remain baked in
+  underlying saved map tiles, so visually perfect replacement will need selective
+  removal of graph-owned track blocks from the terrain baker (without hiding detached
+  tracks or invalidating player maps).
 - Individual marker groups can be enabled/disabled via Settings > Overlays; full clustering
   and request-detail screens remain to be implemented. The existing global Diorama
   waypoint setting also controls whether any live pins appear.
