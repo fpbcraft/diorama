@@ -68,6 +68,20 @@ public final class Claims {
 		return current;
 	}
 
+	/**
+	 * OPAC owner/group label for the player's current chunk, independent of whether
+	 * claim polygons are visible. Uses the already-synchronized client claim index.
+	 * Never falls back to FTB Chunks or an outdated dimension's claims.
+	 */
+	public static @Nullable String opacClaimName(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
+		if (!usingOpac) {
+			return null;
+		}
+		Claim[] chunks = known.getOrDefault(dimension, Map.of()).get(new Region(chunkX >> 5, chunkZ >> 5));
+		Claim claim = chunks == null ? null : chunks[index(chunkX, chunkZ)];
+		return claim == null ? null : claim.name();
+	}
+
 	/** Whether there's anything to read claims from, so settings about them are worth showing. */
 	public static boolean supported() {
 		return FtbChunks.available() || OpacClaims.installedOnClient();
