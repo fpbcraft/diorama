@@ -142,6 +142,18 @@ public final class SettingsScreen extends Screen {
 			overlays.choice("claims", Settings.ClaimsShown.values(), () -> s.claims, v -> s.claims = v);
 		}
 		overlays.choice("drawings", Settings.DrawingsShown.values(), () -> s.drawings, v -> s.drawings = v);
+		// Source layers are separate from saved waypoints and claims, so they can be disabled
+		// independently without changing either the map's saved data or its visibility.
+		overlays.heading("addon_layers");
+		overlays.toggle("show_create_curves", () -> s.showCreateCurves, v -> s.showCreateCurves = v);
+		overlays.toggle("show_colony_centers", () -> s.showColonyCenters, v -> s.showColonyCenters = v);
+		overlays.toggle("show_colony_buildings", () -> s.showColonyBuildings, v -> s.showColonyBuildings = v);
+		overlays.toggle("show_colony_construction", () -> s.showColonyConstruction, v -> s.showColonyConstruction = v);
+		overlays.toggle("show_colony_requests", () -> s.showColonyRequests, v -> s.showColonyRequests = v);
+		overlays.toggle("show_railway_stations", () -> s.showRailwayStations, v -> s.showRailwayStations = v);
+		overlays.toggle("show_railway_trains", () -> s.showRailwayTrains, v -> s.showRailwayTrains = v);
+		overlays.toggle("show_sable_ship_shapes", () -> s.showSableShipShapes, v -> s.showSableShipShapes = v);
+		overlays.toggle("show_sable_ship_markers", () -> s.showSableShipMarkers, v -> s.showSableShipMarkers = v);
 
 		SettingsTab waypoints = new SettingsTab("diorama.settings.waypoints");
 		waypoints.toggle("waypoints_map", () -> s.waypointsOnMap, v -> s.waypointsOnMap = v);

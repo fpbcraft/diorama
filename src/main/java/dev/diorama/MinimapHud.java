@@ -1,5 +1,6 @@
 package dev.diorama;
 
+import dev.diorama.api.MapAnnotations;
 import dev.diorama.bake.TileKey;
 import dev.diorama.compat.Cobblemon;
 import dev.diorama.render.Circle;
@@ -200,6 +201,7 @@ public final class MinimapHud implements HudElement {
 		this.viewport.draw(graphics, session.map(), view, 0, Settings.get().claims == Settings.ClaimsShown.ALWAYS,
 			() -> session.lights().draw(graphics, view, partialTick, shownOpacity, ServerRules.radarAllowed() && settings.radarOnMinimap));
 		session.crafts().draw(graphics, view, partialTick, opacity);
+		MapAnnotations.draw(graphics, view, mc.level.dimension().identifier().toString(), false);
 		DrawingStore drawings = DrawingStore.get();
 		if (drawings != null && settings.drawings == Settings.DrawingsShown.ALWAYS) {
 			this.drawings.draw(graphics, font, view, drawings.in(mc.level.dimension().identifier().toString()), null, null, false);
@@ -209,8 +211,14 @@ public final class MinimapHud implements HudElement {
 		List<Radar.Blip> blips = ServerRules.radarAllowed() && settings.radarOnMinimap ? Radar.collect(view, partialTick, false) : List.of();
 		Radar.draw(graphics, view, blips, false, false);
 		WaypointStore store = WaypointStore.get();
-		if (store != null && settings.waypointsOnMap) {
-			List<Waypoint> near = store.in(mc.level.dimension().identifier().toString()).stream().filter(w -> WaypointStore.isNear(w, viewer)).toList();
+		if (settings.waypointsOnMap) {
+			String dimension = mc.level.dimension().identifier().toString();
+			List<Waypoint> known = new ArrayList<>();
+			if (store != null) {
+				known.addAll(store.in(dimension));
+			}
+			known.addAll(MapAnnotations.markers(dimension));
+			List<Waypoint> near = known.stream().filter(w -> WaypointStore.isNear(w, viewer)).toList();
 			WaypointOverlay.draw(graphics, view, WaypointOverlay.layout(view, near, false), false, null);
 		}
 		Radar.draw(graphics, view, blips, false, true);

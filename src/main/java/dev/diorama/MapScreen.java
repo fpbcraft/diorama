@@ -1,5 +1,6 @@
 package dev.diorama;
 
+import dev.diorama.api.MapAnnotations;
 import dev.diorama.bake.BlockLooks;
 import dev.diorama.compat.OpacClaims;
 import dev.diorama.bake.MapPick;
@@ -505,6 +506,7 @@ public final class MapScreen extends Screen {
 		if (!elsewhere) {
 			session.crafts().draw(graphics, view, a, 1);
 		}
+		MapAnnotations.draw(graphics, view, this.dimension(), true);
 		DrawingStore drawings = DrawingStore.get();
 		if (drawings != null && (this.draw.active() || Settings.get().drawings != Settings.DrawingsShown.OFF)) {
 			this.draw.drawMap(graphics, this.font, view, drawings.in(this.dimension()), mouseX, mouseY, !this.overControls(mouseX, mouseY));
@@ -519,7 +521,16 @@ public final class MapScreen extends Screen {
 			hovered = Radar.under(this.blips, mouseX, mouseY);
 		}
 		WaypointStore store = WaypointStore.get();
-		this.pins = store == null || !Settings.get().waypointsOnMap ? List.of() : this.layoutPins(view, store.in(this.dimension()));
+		if (Settings.get().waypointsOnMap) {
+			List<Waypoint> mapPins = new ArrayList<>();
+			if (store != null) {
+				mapPins.addAll(store.in(this.dimension()));
+			}
+			mapPins.addAll(MapAnnotations.markers(this.dimension()));
+			this.pins = this.layoutPins(view, mapPins);
+		} else {
+			this.pins = List.of();
+		}
 		WaypointOverlay.Pin hoveredPin = WaypointOverlay.under(this.pins, mouseX, mouseY);
 		WaypointOverlay.draw(graphics, view, this.pins, true, hoveredPin);
 		Radar.draw(graphics, view, this.blips, true, true);
@@ -1249,12 +1260,14 @@ public final class MapScreen extends Screen {
 				this.changed();
 			}));
 		}
+		if (waypoint.kind != Waypoint.Kind.LIVE) {
 		items.add(MapMenu.Item.action(Component.translatable("diorama.waypoints.hide"), true, () -> {
 			WaypointStore store = WaypointStore.get();
 			if (store != null) {
 				store.setVisible(waypoint, false);
 			}
 		}));
+		}
 		if (waypoint.editable()) {
 			items.add(MapMenu.Item.confirmed(Component.translatable("diorama.waypoint.delete"), Component.translatable("diorama.menu.delete_confirm"), () -> {
 				WaypointStore store = WaypointStore.get();

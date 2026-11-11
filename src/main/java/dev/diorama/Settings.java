@@ -168,6 +168,17 @@ public final class Settings {
 	public int defaultsMoved = 0;
 	public boolean chunkGrid = false;
 	public boolean slimeChunks = false;
+
+	/** Optional, client-side map layers; individually controlled under Settings > Overlays. */
+	public boolean showCreateCurves = true;
+	public boolean showColonyCenters = true;
+	public boolean showColonyBuildings = false;
+	public boolean showColonyConstruction = false;
+	public boolean showColonyRequests = true;
+	public boolean showRailwayStations = true;
+	public boolean showRailwayTrains = true;
+	public boolean showSableShipShapes = true;
+	public boolean showSableShipMarkers = false;
 	public SpawnSpots spawnSpots = SpawnSpots.OFF;
 	/** Where FTB Chunks' and OPAC's land claims show, when available. */
 	public ClaimsShown claims = ClaimsShown.ALWAYS;
