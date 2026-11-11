@@ -37,7 +37,7 @@ public final class CreateCurves implements MapAnnotations.Source {
     private static final int SAMPLE_TICKS = 80;
     private static final int MAX_EDGES = 30_000;
     private static final int MAX_SAMPLES_PER_EDGE = 192;
-    private static final int MAX_RENDER_SEGMENTS = 12_000;
+    private static final int MAX_RENDER_SEGMENTS = 100_000;
     private static final int DEFAULT_SLEEPER = 0xFF765E48;
     private static final int STEEL_RAIL = 0xFFD2D2D0;
     private static final int GOLD_RAIL = 0xFFEAC36B;
@@ -171,6 +171,7 @@ public final class CreateCurves implements MapAnnotations.Source {
             }
             Map<String, List<Segment>> next = new HashMap<>();
             int edges = 0;
+            int samples = 0;
             for (Object graph : graphs.values()) {
                 if (!(this.nodesMethod.invoke(graph) instanceof Iterable<?> nodes)) {
                     continue;
@@ -255,6 +256,13 @@ public final class CreateCurves implements MapAnnotations.Source {
                             }
                             if (across.lengthSqr() >= 1e-6) {
                                 list.add(new Segment(previous, current, across.normalize(), up.normalize(), palette, girder, !curved));
+                                if (++samples >= MAX_RENDER_SEGMENTS) {
+                                    // Cap world-wide graph snapshots so a very large modpack
+                                    // cannot freeze the client when reconstructing rails.
+                                    this.segments = Map.copyOf(next);
+                                    this.pixels.update(this.segments);
+                                    return;
+                                }
                             }
                             previous = current;
                             previousT = t;
