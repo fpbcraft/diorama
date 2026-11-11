@@ -18,6 +18,7 @@ import dev.diorama.render.gpu.MapTexture;
 import dev.diorama.render.gpu.Sampling;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -60,6 +61,11 @@ final class CurveRaster {
     private static final class Tile {
         final int[] pixels = new int[SIZE * SIZE];
         final float[] depth = new float[SIZE * SIZE];
+        // Straight Create tracks already exist as normal blocks in older baked terrain
+        // tiles. Their new representation can be level with those pixels: don't clip it
+        // merely because the legacy model was baked slightly nearer the camera.
+        final BitSet straightPixels = new BitSet(SIZE * SIZE);
+        boolean drawingStraight;
         final Key key;
         int x0 = SIZE, y0 = SIZE, x1, y1;
         MapTexture texture;
@@ -256,7 +262,8 @@ final class CurveRaster {
                     float ground = surface.near(originX + x, originY + y);
                     if (Float.isNaN(ground)) {
                         if (fog) output[index] = 0;
-                    } else if (ground < tile.depth[index] - GROUND_HIDES) {
+                    } else if (ground < tile.depth[index]
+                        - (tile.straightPixels.get(index) ? 1.15 : GROUND_HIDES)) {
                         output[index] = 0;
                     }
                 }
@@ -273,6 +280,7 @@ final class CurveRaster {
     }
 
     private void rasterize(Tile tile, CreateCurves.Segment segment) {
+        tile.drawingStraight = segment.straight();
         CreateCurves.Palette p = segment.palette();
         double gauge = p.gauge();
         Vec3 from = segment.from();
@@ -366,6 +374,7 @@ final class CurveRaster {
                 if (approxDepth > tile.depth[index] + .14f) continue;
                 int alpha = coverage * 255 / 4;
                 tile.pixels[index] = over(abgr, alpha, tile.pixels[index]);
+                if (tile.drawingStraight) tile.straightPixels.set(index);
                 tile.depth[index] = Math.min(tile.depth[index], approxDepth);
                 tile.touched(x, y);
             }
