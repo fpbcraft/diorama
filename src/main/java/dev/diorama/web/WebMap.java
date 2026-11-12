@@ -714,6 +714,13 @@ public final class WebMap {
 			int batches = 0;
 			long lastLog = System.currentTimeMillis();
 			Set<Long> dirty = new HashSet<>();
+			Set<Long> changedTiles = new HashSet<>();
+			if (force) {
+				// Force redraw must also clear stale JPEGs for land removed from the map.
+				this.pending.addAll(this.tiles[0]);
+				this.queuedCount = this.pending.size();
+				if (!this.pending.save()) return PASS_INCOMPLETE;
+			}
 			for (int index = cursor; index < ordered.size(); index++) {
 				this.map.awaitActive();
 				if (!this.map.requested.isEmpty()) this.map.handleRequests(looks);
@@ -756,6 +763,9 @@ public final class WebMap {
 					int floor = before != null ? Math.min(before.floor(), summary.floorY())
 						: last >= 0 ? this.level.getMinY() : summary.floorY();
 					this.markTiles(chunkX, chunkZ, top, floor, dirty);
+					if (last < 0 && before != null && before.blocks() != info.blocks()) {
+						this.markTiles(chunkX, chunkZ, top, floor, changedTiles);
+					}
 				}
 				if (any) this.source.forgetTops(region.getKey());
 
@@ -765,9 +775,10 @@ public final class WebMap {
 					// An explicit force/redraw or an incremental change re-renders existing JPEGs.
 					// A normal initial full scan only fills in missing tiles.
 					for (long tile : dirty) {
-						if (force || last >= 0 || !this.tiles[0].contains(tile)) this.pending.add(tile);
+						if (force || last >= 0 || changedTiles.contains(tile) || !this.tiles[0].contains(tile)) this.pending.add(tile);
 					}
 					dirty.clear();
+					changedTiles.clear();
 					this.queuedCount = this.pending.size();
 					if (!this.pending.save()) {
 						this.map.setStatus("incomplete " + this.id + ": couldn't persist pending tile queue");
@@ -895,6 +906,7 @@ public final class WebMap {
 		/** Queue only eligible saved chunks in the requested radius. Does not generate land. */
 		private void renderArea(TableLooks looks, RenderRequest request) {
 			Set<Long> tilesToRender = new HashSet<>();
+			Set<Long> changedTiles = new HashSet<>();
 			int radius = request.radius();
 			long radiusSquared = (long) radius * radius;
 			int minX = Math.floorDiv(request.x() - radius, 16);
@@ -925,11 +937,21 @@ public final class WebMap {
 					if (info == null || !info.summary().finished()
 						|| !this.map.settings.everyChunk() && info.inhabited() <= 0) continue;
 					eligible++;
+					long chunkKey = ChunkSnapshot.key(chunkX, chunkZ);
+					Drawn before = this.drawn.put(chunkKey, new Drawn(info.blocks(), info.summary().maxY(), info.summary().floorY()));
 					this.markTiles(chunkX, chunkZ, info.summary().maxY(), info.summary().floorY(), tilesToRender);
+					// Like BlueMap update: normal render still updates changed blocks,
+					// but does not unnecessarily overwrite an unchanged JPEG.
+					if (before != null && before.blocks() != info.blocks()) {
+						this.markTiles(chunkX, chunkZ, info.summary().maxY(), info.summary().floorY(), changedTiles);
+					}
 				}
 			}
 			// Render fills missing JPEGs; force-render replaces all the affected JPEGs.
-			if (!request.force()) tilesToRender.removeAll(this.tiles[0]);
+			if (!request.force()) {
+				tilesToRender.removeAll(this.tiles[0]);
+				tilesToRender.addAll(changedTiles);
+			}
 			this.pending.addFirst(tilesToRender);
 			this.queuedCount = this.pending.size();
 			Diorama.LOGGER.info("Web map {}: {} radius {} at {},{} scanned {} chunks, {} eligible, queued {} tiles ({} total)",
