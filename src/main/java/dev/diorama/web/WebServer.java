@@ -75,15 +75,17 @@ final class WebServer {
 	private static void serve(Path root, HttpExchange exchange) throws IOException {
 		try {
 			String method = exchange.getRequestMethod();
+			String path = exchange.getRequestURI().getPath();
+			// Registered routes enforce their own method limits; the bounded
+			// same-origin chat adapter is the only extension accepting POST.
+			if (WebExtensions.serve(exchange, path)) return;
 			if (!method.equals("GET") && !method.equals("HEAD")) {
 				send(exchange, 405, "text/plain", null);
 				return;
 			}
-			String path = exchange.getRequestURI().getPath();
 			if (path.equals("/") || path.isEmpty()) {
 				path = "/index.html";
 			}
-			if (WebExtensions.serve(exchange, path)) return;
 			Path file = root.resolve(path.substring(1)).normalize();
 			// Only public map assets within the real map root.
 			String name = file.getFileName() == null ? "" : file.getFileName().toString();
