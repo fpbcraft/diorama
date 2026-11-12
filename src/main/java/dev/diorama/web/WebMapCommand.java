@@ -55,6 +55,14 @@ public final class WebMapCommand {
 	) {
 		var command = Commands.literal(name).executes(c -> full(c, force));
 		command.then(Commands.literal("full").executes(c -> full(c, force)));
+		// BlueMap-compatible shorthand: /diorama-web update 512
+		command.then(Commands.argument("radius_blocks", IntegerArgumentType.integer(1, MAX_RADIUS))
+			.executes(c -> {
+				var pos = c.getSource().getPosition();
+				return area(c, c.getSource().getLevel().dimension().identifier().toString(),
+					(int) Math.floor(pos.x), (int) Math.floor(pos.z),
+					IntegerArgumentType.getInteger(c, "radius_blocks"), force);
+			}));
 		command.then(Commands.literal("radius")
 			.then(Commands.argument("radius", IntegerArgumentType.integer(1, MAX_RADIUS))
 				.executes(c -> {
