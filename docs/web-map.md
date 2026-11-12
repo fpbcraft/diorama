@@ -50,6 +50,29 @@ Changing `share-land` redraws the whole map by itself the next time the server s
 
 Land taken out of the world stays on the web map until `/diorama-web redraw`: a dimension reset by deleting its folder, region files deleted, or chunks trimmed with a tool such as MCA Selector.
 
+
+## FPBCRAFT web-map worker diagnostics
+
+The server console command `diorama-web status` reports the worker's current stage:
+
+- **scanning saved region headers / scanning saved chunks** — loading region files; includes region count, saved chunks examined, average tick time in milliseconds.
+- **waiting** — shows the current dimension, tile number, mean MSPT, whether world saving is active, and accumulated wait duration. If the average server tick exceeds 40 ms, tile generation pauses to preserve TPS. If it remains between 40 and 50 ms for 30 seconds without a world save, one tile can proceed at a conservative rate; at more than 50 ms or during a save, generation remains paused.
+- **drawing** — current tile count, percentage, and mean MSPT.
+- **incomplete / retrying** — a scan/render failure or a redraw interruption; a full pass is scheduled after 30 seconds (an operator-requested redraw begins as soon as possible).
+- **up to date** — a complete pass has finished; the status also reports the current number of base JPEG tiles. A previous, interrupted pass no longer produces this status.
+
+The server log adds:
+
+- Pass start, region count, mean MSPT and saving state.
+- Periodic scan and tile progress (every 30 seconds).
+- Pauses exceeding 30 seconds, including reasons and elapsed time.
+- Slow tiles (10 seconds or more), with coordinates and execution time.
+- Completed scan summary, chunks considered, number of tiles queued and read failures.
+- Explicit interruption cause (server shutdown or another redraw), completed count and retry schedule.
+- Detection of stale progress records when no base JPEG tiles exist; one full rescan is triggered automatically.
+
+Use `diorama-web status` to capture the current stage, then look for `Web map` in `logs/latest.log` to find timing, cause, and progress. **Do not repeatedly run `diorama-web redraw` while the first pass is building**: every invocation interrupts the current pass. This worker uses the saved region files and writes into `<world>/diorama-web/`; no manual deletion of `progress.properties` or the JPEG folders is required.
+
 ## Disk
 
 About 59 KB a tile of land, plus half as much again for the zoomed-out views. Hermitcraft Season 10's world took 173 MB: 125 MB for the overworld, 30 MB for the Nether, 19 MB for the End.

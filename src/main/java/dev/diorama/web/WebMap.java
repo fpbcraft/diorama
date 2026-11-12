@@ -699,6 +699,8 @@ public final class WebMap {
 			long bytes = 0;
 			int drawn = 0;
 			int empty = 0;
+			int bakeErrors = 0;
+			int writeErrors = 0;
 			long lastTileProgressLog = System.currentTimeMillis();
 			long lastBusyTile = 0;
 			double tickSum = 0;
@@ -764,10 +766,12 @@ public final class WebMap {
 					this.map.averageTickMs()));
 				int u = (int) (key >> 32);
 				int v = (int) key;
+				long tileStarted = System.nanoTime();
 				int[] pixels;
 				try {
 					pixels = TileBaker.reference(new TileKey(TileKey.SURFACE, u, v), this.source, looks, false, null, null);
 				} catch (RuntimeException | LinkageError | StackOverflowError e) {
+					bakeErrors++;
 					// A block a mod draws in a way the server can't: this tile stays as it was, and the rest
 					// are drawn. It's tried again when its land is saved again or on a redraw.
 					Diorama.LOGGER.warn("Couldn't draw web map tile {} {},{}", this.id, u, v, e);
@@ -785,20 +789,30 @@ public final class WebMap {
 					}
 				} catch (IOException e) {
 					failed = true;
+					writeErrors++;
 					Diorama.LOGGER.warn("Couldn't write web map tile {} {},{}", this.id, u, v, e);
+				}
+				long tileMs = (System.nanoTime() - tileStarted) / 1_000_000;
+				if (tileMs >= 10_000) {
+					Diorama.LOGGER.warn("Web map {}: slow tile {},{} took {} s; completed {}/{}; tick {} ms, saving={}",
+						this.id, u, v, tileMs / 1000, drawn + empty, order.size(),
+						String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()),
+						this.map.server.isCurrentlySaving());
 				}
 				double tick = this.map.averageTickMs();
 				tickSum += tick;
 				tickMax = Math.max(tickMax, tick);
 				long now = System.currentTimeMillis();
 				if (now - lastTileProgressLog >= PROGRESS_LOG_MS) {
-					Diorama.LOGGER.info("Web map {}: {}/{} tiles processed ({} rendered, {} empty, {} write errors), {}%, average tick {} ms",
-						this.id, drawn + empty, order.size(), drawn, empty, failed ? "at least 1" : "0",
+					Diorama.LOGGER.info("Web map {}: {}/{} tiles processed ({} rendered, {} empty, {} bake errors, {} write errors), {}%, average tick {} ms",
+						this.id, drawn + empty + bakeErrors + writeErrors, order.size(), drawn, empty, bakeErrors, writeErrors,
 						String.format(Locale.ROOT, "%.1f", (drawn + empty) * 100.0 / order.size()),
 						String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()));
 					lastTileProgressLog = now;
 				}
-				if ((drawn + empty) > 0 && (drawn + empty) % 50 == 0) {
+				// Publish the first completed JPEG immediately: otherwise a slow first
+				// pass leaves the browser blank until 50 tiles have been processed.
+				if (drawn + empty == 1 || ((drawn + empty) > 0 && (drawn + empty) % 25 == 0)) {
 					this.map.writeMapJson();
 				}
 			}
