@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Diorama web map</title>
 <style>
 	:root {
@@ -31,17 +31,19 @@
 	.follow { padding: 8px 12px; color: var(--muted); }
 	.follow.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 	.where { position: fixed; left: 12px; bottom: 12px; padding: 8px 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-	.empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: var(--muted); padding: 24px; text-align: center; }
+	.map-empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: var(--muted); padding: 24px; text-align: center; }
 	button:focus-visible { outline: 2px solid #7aa7ff; outline-offset: -2px; }
 </style>
 </head>
 <body>
 <canvas id="map" aria-label="Map"></canvas>
+<div id="overlays" style="position:fixed;inset:0;pointer-events:none"></div>
 <div class="bar"><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
 <div class="zoom panel"><button id="in" aria-label="Zoom in">+</button><button id="out" aria-label="Zoom out">&minus;</button></div>
 <div class="where panel" id="where" hidden></div>
-<div class="empty" id="empty"></div>
-<script>
+<div class="map-empty" id="empty"></div>
+<script type="module">
+import { createOverlayApi, projectWorld } from "./overlay-api.js";
 "use strict";
 // Behind a proxy at a folder of its own (example.com/map), the page's files are inside that folder.
 if (!location.pathname.endsWith("/") && !/\.[a-z]+$/i.test(location.pathname)) location.replace(location.pathname + "/" + location.search + location.hash);
@@ -55,6 +57,29 @@ let view = { u: 0, v: 0, scale: 1 };
 // The player's own map, served by their game (map.live): where they are, and whether the view stays on them.
 let player = null;       // player.json, or null when the game isn't in a world
 let follow = true;
+
+const extensionApi = createOverlayApi({
+  container: document.getElementById("overlays"),
+  getState: () => map && dim ? ({ dimension: dim.id, dimensions: map.dimensions.map(d => d.id),
+    u: view.u, v: view.v, scale: view.scale, width: canvas.clientWidth, height: canvas.clientHeight,
+    pixelRatio: devicePixelRatio || 1, projection: { sin: map.sin, cos: map.cos, facing: map.facing || 0 } }) : null,
+  setDimension: id => {
+    const next = map?.dimensions.find(d => d.id === id);
+    if (!next) return false;
+    if (dim?.id !== id) { pick(next, false); buildDims(); saveHash(); }
+    return true;
+  },
+  navigate: point => {
+    if (point.dimension && !extensionApi.setDimension(point.dimension)) return false;
+    if (!map || ![point.x, point.y, point.z].every(Number.isFinite)) return false;
+    const projected = projectWorld(point, map);
+    view.u = projected.u; view.v = projected.v;
+    setFollow(false); draw(); saveHash(); return true;
+  },
+});
+window.diorama = extensionApi;
+window.dispatchEvent(new Event("diorama:ready"));
+addEventListener("pagehide", () => extensionApi.dispose(), { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 
@@ -231,6 +256,7 @@ function startLoads() {
 
 let pending = false;
 function draw() {
+	extensionApi.changed();
 	if (pending) return;
 	pending = true;
 	requestAnimationFrame(() => { pending = false; paint(); });
@@ -332,8 +358,9 @@ function drawPlayer(x, y, dpr) {
 // Panning and zooming, by mouse, wheel, touch and keys.
 const pointers = new Map();
 let last = null;
-canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, e); canvas.classList.add("dragging"); last = gesture(); });
+canvas.addEventListener("pointerdown", e => { extensionApi.changed("interaction"); canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, e); canvas.classList.add("dragging"); last = gesture(); });
 canvas.addEventListener("pointermove", e => {
+	extensionApi.pointer(e);
 	showWhere(e);
 	if (!pointers.has(e.pointerId)) return;
 	pointers.set(e.pointerId, e);
@@ -347,6 +374,7 @@ canvas.addEventListener("pointermove", e => {
 	}
 	last = now;
 });
+canvas.addEventListener("pointerleave", e => extensionApi.pointer(e));
 for (const type of ["pointerup", "pointercancel"]) canvas.addEventListener(type, e => {
 	pointers.delete(e.pointerId);
 	last = gesture();
@@ -379,9 +407,10 @@ function zoomAt(x, y, factor) {
 document.getElementById("in").onclick = () => { zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, 2); draw(); saveHash(); };
 document.getElementById("out").onclick = () => { zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, 0.5); draw(); saveHash(); };
 addEventListener("keydown", e => {
+	if (e.target instanceof Element && e.target.closest("input,textarea,select,button,[contenteditable]")) return;
 	const step = 80 / view.scale;
 	const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-	if (moves[e.key]) { view.u += moves[e.key][0]; view.v += moves[e.key][1]; if (follow && map && map.live) setFollow(false); }
+	if (moves[e.key]) { extensionApi.changed("interaction"); view.u += moves[e.key][0]; view.v += moves[e.key][1]; if (follow && map && map.live) setFollow(false); }
 	else if (e.key === "+" || e.key === "=") zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, 2);
 	else if (e.key === "-") zoomAt(canvas.clientWidth / 2, canvas.clientHeight / 2, 0.5);
 	else return;
@@ -423,6 +452,22 @@ function saveHash() {
 
 load(true);
 draw();
+// Optional server-owned extension configuration, preserved across map restarts.
+fetch("extensions.json", { cache: "no-store" }).then(response => response.ok ? response.json() : null).then(config => {
+  if (!config) return;
+  for (const [kind, paths] of [["style", config.styles], ["script", config.scripts]]) {
+    if (!Array.isArray(paths)) continue;
+    for (const path of paths.slice(0, 16)) {
+      if (typeof path !== "string") continue;
+      const url = new URL(path, document.baseURI);
+      if (url.origin !== location.origin) continue;
+      const element = document.createElement(kind === "style" ? "link" : "script");
+      if (kind === "style") { element.rel = "stylesheet"; element.href = url.href; }
+      else { element.type = "module"; element.src = url.href; }
+      document.head.append(element);
+    }
+  }
+}).catch(error => console.warn("Diorama extensions unavailable", error));
 </script>
 </body>
 </html>

@@ -121,3 +121,11 @@ Mods ship their block models and textures in the same jar on the server, and the
 
 - **Models made in code** (some machines, connected textures) have no files to read. Those blocks show in their colour on vanilla maps.
 - **Tints.** A block whose model asks to be tinted shows in the biome's foliage colour if it's leaves, and its grass colour otherwise. A mod that tints its blocks some other way, or not at all, can come out a different colour from the game.
+
+## Player History and other browser overlays
+
+The optional [web extension API](web-extensions.md) adds composited overlays
+without reloading map tiles. Enable extensions through a server-owned
+`extensions.json` in the generated map directory. For Player History, serve its
+public assets/data and authenticated API using explicit same-origin proxy
+routes; do not link the private recorder directory into the map root.

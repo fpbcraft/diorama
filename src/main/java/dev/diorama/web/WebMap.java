@@ -157,9 +157,11 @@ public final class WebMap {
 	private boolean start() {
 		try {
 			Files.createDirectories(this.folder);
-			try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/index.html")) {
-				if (page != null) {
-					Files.copy(page, this.folder.resolve("index.html"), StandardCopyOption.REPLACE_EXISTING);
+			for (String asset : new String[] {"index.html", "overlay-api.js"}) {
+				try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
+					if (page != null) {
+						Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
+					}
 				}
 			}
 		} catch (IOException e) {
@@ -504,6 +506,7 @@ public final class WebMap {
 			.append(",\"tilePixels\":").append(Projection.TILE_PIXELS)
 			.append(",\"sin\":").append(String.format(Locale.ROOT, "%.6f", Projection.sin()))
 			.append(",\"cos\":").append(String.format(Locale.ROOT, "%.6f", Projection.cos()))
+			.append(",\"facing\":").append(Projection.facing().turns)
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())
 			.append(",\"dimensions\":[");
