@@ -84,14 +84,15 @@ final class WebServer {
 				path = "/index.html";
 			}
 			Path file = root.resolve(path.substring(1)).normalize();
-			// Only what's in the folder, and only the page, its map file and the pictures.
+			// Only public map assets within the real map root.
 			String name = file.getFileName() == null ? "" : file.getFileName().toString();
-			String type = name.endsWith(".jpg") ? "image/jpeg" : name.endsWith(".json") ? "application/json" : name.endsWith(".html") ? "text/html; charset=utf-8" : null;
+			String type = name.endsWith(".jpg") ? "image/jpeg" : name.endsWith(".json") ? "application/json" : name.endsWith(".html") ? "text/html; charset=utf-8" : name.endsWith(".js") ? "text/javascript; charset=utf-8" : name.endsWith(".css") ? "text/css; charset=utf-8" : name.endsWith(".png") ? "image/png" : null;
 			if (!file.startsWith(root) || type == null || !Files.isRegularFile(file) || !file.toRealPath().startsWith(root.toRealPath())) {
 				// Outside the folder, also through a link inside it.
 				send(exchange, 404, "text/plain", null);
 				return;
 			}
+			exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
 			Instant modified = Files.getLastModifiedTime(file).toInstant().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
 			exchange.getResponseHeaders().set("Last-Modified", DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.ofInstant(modified, ZoneOffset.UTC)));
 			// Pictures change when their land does: the browser asks again, and gets a 304 if not.
@@ -100,7 +101,13 @@ final class WebServer {
 			String query = exchange.getRequestURI().getRawQuery();
 			exchange.getResponseHeaders().set("Cache-Control", type.equals("image/jpeg") && query != null && query.startsWith("v=")
 				? "public, max-age=31536000, immutable" : "no-cache");
-			String since = exchange.getRequestHeaders().getFirst("If-Modified-Since");
+			boolean live = name.equals("live.json") || name.equals("presence.json") || name.equals("player.json")
+				|| name.equals("server-overlays.json") || name.equals("world-status.json");
+			if (live) exchange.getResponseHeaders().set("Cache-Control", "no-store");
+			if (name.endsWith(".js") && root.relativize(file).toString().replace('\\', '/').matches("modules/[A-Za-z0-9.+-]+/.+\\.js")) {
+				exchange.getResponseHeaders().set("Cache-Control", "public, max-age=31536000, immutable");
+			}
+			String since = live ? null : exchange.getRequestHeaders().getFirst("If-Modified-Since");
 			if (since != null) {
 				try {
 					if (!modified.isAfter(ZonedDateTime.parse(since, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant())) {

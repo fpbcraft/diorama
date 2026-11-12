@@ -26,6 +26,13 @@ jobs:
           java-version: '25'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check web projection and HTTP security
+        run: |
+          node --test tests/web/*.test.mjs
+          node scripts/test-web-server.mjs
       - name: Build Diorama (NeoForge 1.21.1)
         run: ./gradlew :1.21.1-neoforge:build --stacktrace
       - name: Compile FPBCraft companion addon

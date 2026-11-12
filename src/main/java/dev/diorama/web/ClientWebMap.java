@@ -250,6 +250,12 @@ public final class ClientWebMap {
 			String path = exchange.getRequestURI().getPath();
 			Live now = live;
 			exchange.getResponseHeaders().set("Cache-Control", "no-cache");
+			if (path.equals("/overlay-api.js")) {
+				try (InputStream asset = ClientWebMap.class.getResourceAsStream("/diorama/web/overlay-api.js")) {
+					WebServer.send(exchange, asset == null ? 404 : 200, "text/javascript; charset=utf-8", head || asset == null ? null : asset.readAllBytes());
+				}
+				return;
+			}
 			if (path.equals("/") || path.equals("/index.html")) {
 				byte[] body = page();
 				WebServer.send(exchange, body == null ? 404 : 200, "text/html; charset=utf-8", head ? null : body);
