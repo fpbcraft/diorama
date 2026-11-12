@@ -891,6 +891,66 @@ public final class WebMap {
 			return !this.map.stopping();
 		}
 
+
+		/** Queue only eligible saved chunks in the requested radius. Does not generate land. */
+		private void renderArea(TableLooks looks, RenderRequest request) {
+			Set<Long> tilesToRender = new HashSet<>();
+			int radius = request.radius();
+			long radiusSquared = (long) radius * radius;
+			int minX = Math.floorDiv(request.x() - radius, 16);
+			int maxX = Math.floorDiv(request.x() + radius, 16);
+			int minZ = Math.floorDiv(request.z() - radius, 16);
+			int maxZ = Math.floorDiv(request.z() + radius, 16);
+			this.map.setStatus("scheduling " + this.id + " radius " + radius + " at "
+				+ request.x() + "," + request.z());
+			int examined = 0;
+			int eligible = 0;
+			for (Map.Entry<Long, int[]> region : this.save.scan().entrySet()) {
+				if (this.map.stopping()) break;
+				int regionX = (int) (region.getKey() >> 32);
+				int regionZ = (int) (long) region.getKey();
+				if (regionX * 32 > maxX || regionX * 32 + 31 < minX
+					|| regionZ * 32 > maxZ || regionZ * 32 + 31 < minZ) continue;
+				int[] times = region.getValue();
+				for (int i = 0; i < times.length; i++) {
+					if (times[i] == 0) continue;
+					int chunkX = regionX * 32 + (i & 31);
+					int chunkZ = regionZ * 32 + (i >> 5);
+					if (chunkX < minX || chunkX > maxX || chunkZ < minZ || chunkZ > maxZ) continue;
+					long dx = (long) chunkX * 16 + 8 - request.x();
+					long dz = (long) chunkZ * 16 + 8 - request.z();
+					if (dx * dx + dz * dz > radiusSquared + 256) continue;
+					examined++;
+					ServerSave.Info info = this.save.info(chunkX, chunkZ);
+					if (info == null || !info.summary().finished()
+						|| !this.map.settings.everyChunk() && info.inhabited() <= 0) continue;
+					eligible++;
+					this.markTiles(chunkX, chunkZ, info.summary().maxY(), info.summary().floorY(), tilesToRender);
+				}
+			}
+			// Render fills missing JPEGs; force-render replaces all the affected JPEGs.
+			if (!request.force()) tilesToRender.removeAll(this.tiles[0]);
+			this.pending.addFirst(tilesToRender);
+			this.queuedCount = this.pending.size();
+			Diorama.LOGGER.info("Web map {}: {} radius {} at {},{} scanned {} chunks, {} eligible, queued {} tiles ({} total)",
+				this.id, request.force() ? "force-render" : "render",
+				radius, request.x(), request.z(), examined, eligible, tilesToRender.size(), this.pending.size());
+			if (this.pending.save()) this.renderQueued(looks, 16);
+			else this.map.setStatus("incomplete " + this.id + ": couldn't persist operator render queue");
+		}
+
+		/** Cancel outstanding queue and scan checkpoints but retain rendered JPEG tiles. */
+		private void cancel(Properties progress) {
+			this.pending.clear();
+			this.queuedCount = 0;
+			this.pending.save();
+			String prefix = "scan." + this.id + ".";
+			progress.remove(prefix + "cursor");
+			progress.remove(prefix + "count");
+			progress.remove(prefix + "since");
+			progress.remove(prefix + "started");
+		}
+
 		/** The tiles a chunk's blocks can show in, or cast shadows into. */
 		private void markTiles(int chunkX, int chunkZ, int maxY, int floorY, Set<Long> dirty) {
 			double sin = Projection.sin();
