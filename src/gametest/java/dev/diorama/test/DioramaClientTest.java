@@ -79,6 +79,7 @@ public class DioramaClientTest implements FabricClientGameTest {
 		context.runOnClient(mc -> Settings.get().dayNight = Settings.DayNight.DAY);
 		String seed = System.getProperty("diorama.seed", "diorama");
 		Set<String> tests = selectedTests();
+		if (tests.contains("web-render-queue")) dev.diorama.web.WebTileQueueTest.run();
 		if (tests.contains("stale-gl-error")) {
 			// An OpenGL error another mod raised and nobody read, still flagged when GPU baking sets
 			// up: with gpu-bake, the comparison shows the setup didn't take it for its own. OpenGL only.
