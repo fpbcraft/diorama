@@ -30,6 +30,17 @@ public final class WebServerSecurityTest {
       java.util.List.of("/player-history/test-embedded.js"), java.util.List.of());
     WebExtensions.registerPublicFiles("test-history", "/player-history/data/", () -> history);
     WebExtensions.registerPublicFiles("test-history", "/player-history/", () -> publicAssets);
+    var chat = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 8);
+    var receivedAuth = new java.util.concurrent.atomic.AtomicReference<String>();
+    chat.createContext("/player-history-api/", exchange -> {
+      receivedAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
+      byte[] reply = "{\"messages\":[]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      exchange.getResponseHeaders().set("Content-Type", "application/json");
+      exchange.sendResponseHeaders(200, reply.length);
+      try (var output = exchange.getResponseBody()) { output.write(reply); }
+    });
+    chat.start();
+    WebExtensions.registerLoopbackApi("test-history", "/player-history-api/", chat.getAddress().getPort());
     WebServer server = WebServer.start(root, "127.0.0.1", 0);
     if (server == null) throw new AssertionError("server did not start");
     var client = HttpClient.newHttpClient();
@@ -73,12 +84,26 @@ public final class WebServerSecurityTest {
         .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
       check(publicHead.statusCode() == 200 && publicHead.body().isEmpty(), "public HEAD");
 
+      // Only a fixed loopback chat endpoint is proxied, with bearer header intact.
+      var messages = get(client, origin + "/player-history-api/messages");
+      check(messages.statusCode() == 200 && messages.body().contains("messages"), "local chat feed proxy");
+      var apiPost = client.send(HttpRequest.newBuilder(URI.create(origin + "/player-history-api/session"))
+          .header("Authorization", "Bearer test-token").header("Content-Type", "application/json")
+          .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+      check(apiPost.statusCode() == 200 && "Bearer test-token".equals(receivedAuth.get()), "local proxy auth forwarding");
+      check(get(client, origin + "/player-history-api/private").statusCode() == 404, "chat action allowlist");
+      var apiTooLarge = client.send(HttpRequest.newBuilder(URI.create(origin + "/player-history-api/send"))
+          .header("Content-Type", "application/json")
+          .POST(HttpRequest.BodyPublishers.ofString("x".repeat(5000))).build(), HttpResponse.BodyHandlers.ofString());
+      check(apiTooLarge.statusCode() == 413, "chat payload limit");
+
       WebExtensions.unregister("test-history");
       check(get(client, origin + "/extensions.auto.json").body().equals("{\"scripts\":[],\"styles\":[]}"), "unregister clears virtual manifest");
       check(get(client, origin + "/player-history/data/manifest.json").statusCode() == 404, "unregister revokes data mount");
       System.out.println("Production WebServer and JAR/public-data extension security checks passed");
     } finally {
       server.stop();
+      chat.stop(0);
       try (var paths = Files.walk(temp)) { for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) Files.delete(path); }
     }
   }
