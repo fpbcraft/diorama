@@ -29,7 +29,10 @@ public final class WebServerSecurityTest {
       "/dev/diorama/web/", java.util.List.of("test-embedded.js"),
       java.util.List.of("/player-history/test-embedded.js"), java.util.List.of());
     WebExtensions.registerPublicFiles("test-history", "/player-history/data/", () -> history);
-    WebExtensions.registerPublicFiles("test-history", "/player-history/", () -> publicAssets);
+    Files.createDirectory(publicAssets.resolve("legacy-data-123"));
+    Files.writeString(publicAssets.resolve("legacy-data-123/manifest.json"), "{\"private\":true}");
+    WebExtensions.registerPublicFiles("test-history", "/player-history/", () -> publicAssets,
+      java.util.List.of("world-status.json", "server-overlays.json", "integration.json", "skins/", "equipment/"));
     var chat = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 8);
     var receivedAuth = new java.util.concurrent.atomic.AtomicReference<String>();
     chat.createContext("/player-history-api/", exchange -> {
@@ -72,6 +75,7 @@ public final class WebServerSecurityTest {
       check(get(client, origin + "/player-history/test-embedded.js").body().contains("fromJar"), "classpath JS");
       check(get(client, origin + "/player-history/data/manifest.json").body().contains("protocolVersion"), "public history read");
       check(get(client, origin + "/player-history/world-status.json").statusCode() == 200, "public publisher read");
+      check(get(client, origin + "/player-history/legacy-data-123/manifest.json").statusCode() == 404, "legacy backup excluded");
       check(get(client, origin + "/player-history/data/escape.json").statusCode() == 404, "public file symlink rejected");
       check(get(client, origin + "/player-history/data/%2e%2e/secret.json").statusCode() == 404, "public traversal rejected");
       check(get(client, origin + "/player-history/data/missing.json").statusCode() == 404, "public missing file");
