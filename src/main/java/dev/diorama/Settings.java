@@ -148,12 +148,13 @@ public final class Settings {
 	 * How big pins are drawn in each view, in percent of the size they're drawn at one pixel per GUI
 	 * pixel: {@link #MIN_WAYPOINT_SIZE} to {@link #MAX_SCALE}. {@code Pins.scale} rounds it to whole
 	 * screen pixels, so 60 is drawn at 67% on GUI scales 3 and 6 and at 50% on 2 and 4. In the world
-	 * the name and distance under a pin follow its size: the game's own text size at
-	 * {@link #DEFAULT_WAYPOINT_SIZE}, bigger and smaller as the pin is drawn ({@code Pins.textScale}).
+	 * the name and distance labels have an independent size setting.
 	 */
 	public int waypointMinimapSize = DEFAULT_WAYPOINT_SIZE;
 	public int waypointMapSize = DEFAULT_WAYPOINT_SIZE;
 	public int waypointWorldSize = DEFAULT_WAYPOINT_SIZE;
+	/** Independent size for waypoint name and distance labels in the world and map, in percent. */
+	public int waypointLabelTextSize = 100;
 	/** The Waypoints and Settings buttons on the map. A modpack can hide them; their keys still open both. */
 	public boolean mapWaypointsButton = true;
 	public boolean mapSettingsButton = true;
@@ -541,6 +542,7 @@ public final class Settings {
 		settings.waypointMinimapSize = clampWaypointSize(settings.waypointMinimapSize);
 		settings.waypointMapSize = clampWaypointSize(settings.waypointMapSize);
 		settings.waypointWorldSize = clampWaypointSize(settings.waypointWorldSize);
+		settings.waypointLabelTextSize = clampTextSize(settings.waypointLabelTextSize);
 		settings.apply();
 		// Written now, so the file says it moved even if the player never changes a setting. One that
 		// couldn't be read stays as it is, for the player to mend.

@@ -16,9 +16,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 
 /**
  * The text under waypoints in the world (opt-in: {@code waypoint-text-size}): a near and a far
- * waypoint at every World size. Both are measured in the screenshot: the pin and the letters have
- * to be whole screen pixels, the letters the game's own size at the default and bigger and smaller
- * in step with the pin.
+ * waypoint at every World size. Both are measured in screenshots: pin and independent label sizes must yield whole screen pixels.
  */
 final class WaypointTextSizeTest {
 	/** Colours no other pin or block uses, to find each pin's head by. */
@@ -77,7 +75,10 @@ final class WaypointTextSizeTest {
 			for (int i = 1; i < row.length; i += 2) {
 				int size = row[i];
 				int text = row[i + 1];
-				context.runOnClient(mc -> Settings.get().waypointWorldSize = size);
+				context.runOnClient(mc -> {
+					Settings.get().waypointWorldSize = size;
+					Settings.get().waypointLabelTextSize = Math.round(text * 100.0F / gui);
+				});
 				context.waitTicks(4);
 				BufferedImage shot = read(context.takeScreenshot("label-size-gui" + gui + "-" + size));
 				int pin = Math.max(1, Math.round(size * gui / 100.0F));
@@ -99,6 +100,7 @@ final class WaypointTextSizeTest {
 		context.runOnClient(mc -> {
 			Settings settings = Settings.get();
 			settings.waypointWorldSize = Settings.DEFAULT_WAYPOINT_SIZE;
+			settings.waypointLabelTextSize = 100;
 			settings.waypointLabels = labels;
 			settings.minimap = true;
 			WaypointStore store = WaypointStore.get();

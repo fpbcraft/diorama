@@ -4,6 +4,7 @@ import dev.diorama.MapSession;
 import dev.diorama.ServerRules;
 import dev.diorama.Settings;
 import dev.diorama.render.Pins;
+import dev.diorama.render.TextSize;
 import java.util.List;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElement;
 //? if >=1.21 {
@@ -24,11 +25,27 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class WaypointHud implements HudElement {
 	/** Within this many GUI pixels of the crosshair a waypoint shows its name. */
-	private static final float NAME_RADIUS = 40;
+	private static final float NAME_RADIUS = 20;
 	/** Within this many blocks a waypoint always shows its name. */
 	private static final double NAME_DISTANCE = 48;
 
 	private final WaypointBeams beams = new WaypointBeams();
+
+	/**
+	 * Distance is only displayed while the crosshair points at the waypoint.
+	 * Name visibility still follows the user's AUTO/ALWAYS/DISTANCE/NONE preference.
+	 */
+	public static String labelText(String name, long distance, Settings.WaypointLabels labels, boolean aimed, boolean close) {
+		if (labels == Settings.WaypointLabels.NONE) return null;
+		boolean showName = labels == Settings.WaypointLabels.ALWAYS
+			|| labels == Settings.WaypointLabels.AUTO && (aimed || close);
+		String result = showName ? name : null;
+		if (aimed) {
+			String meters = distance + " m";
+			result = result == null ? meters : result + " · " + meters;
+		}
+		return result;
+	}
 
 	@Override
 	//? if >=1.21 {
@@ -55,7 +72,7 @@ public final class WaypointHud implements HudElement {
 		Font font = mc.font;
 		List<Waypoint> waypoints = store.shownIn(mc.level.dimension().identifier().toString());
 		float scale = Pins.scale(Settings.get().waypointWorldSize);
-		float textScale = Pins.textScale(Settings.get().waypointWorldSize);
+		float textScale = TextSize.scale(Settings.get().waypointLabelTextSize);
 		// A pin stands above its spot, so a big one is still on screen with its spot well off it.
 		float margin = 28 * Math.max(1, scale);
 		Settings.Beams beamsShown = Settings.get().waypointBeams;
@@ -94,14 +111,8 @@ public final class WaypointHud implements HudElement {
 			float sy = screen[1];
 			double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 			Settings.WaypointLabels labels = Settings.get().waypointLabels;
-			String text = null;
-			if (labels != Settings.WaypointLabels.NONE) {
-				text = Math.round(distance) + " m";
-				boolean nearCrosshair = Math.hypot(sx - width / 2, sy - height / 2) < NAME_RADIUS;
-				if (labels == Settings.WaypointLabels.ALWAYS || labels == Settings.WaypointLabels.AUTO && (nearCrosshair || distance < NAME_DISTANCE)) {
-					text = waypoint.shownName() + " · " + text;
-				}
-			}
+			boolean nearCrosshair = Math.hypot(sx - width / 2, sy - height / 2) < NAME_RADIUS;
+			String text = labelText(waypoint.shownName(), Math.round(distance), labels, nearCrosshair, distance < NAME_DISTANCE);
 			int w = text == null ? 0 : font.width(text);
 			// It stays until the pin and the text under it have both left the screen: big text is
 			// wider than the pin, and hangs further below the spot.

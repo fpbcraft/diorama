@@ -184,7 +184,11 @@ public final class SettingsScreen extends Screen {
 		waypoints.slider("waypoint_size_map", nearestIndex(pinSizes, s.waypointMapSize), pinSizes.length, i -> s.waypointMapSize = pinSizes[i], i -> Component.literal(pinSizes[i] + "%"));
 		waypoints.slider("waypoint_size_world", nearestIndex(pinSizes, s.waypointWorldSize), pinSizes.length, i -> s.waypointWorldSize = pinSizes[i], i -> Component.literal(pinSizes[i] + "%"));
 		waypoints.lastThreeSideBySide();
+		waypoints.slider("waypoint_label_text_size", nearestIndex(textSizes, s.waypointLabelTextSize), textSizes.length,
+			i -> s.waypointLabelTextSize = textSizes[i], i -> Component.literal(textSizes[i] + "%"));
 		waypoints.open("teleport_command", Component.literal("/" + s.teleportCommand), () -> this.minecraft.gui.setScreen(new TeleportCommandScreen(this)));
+		// Keep the waypoint tab within the available height on small screens.
+		waypoints.lastTwoSideBySide();
 
 		SettingsTab look = new SettingsTab("diorama.settings.look");
 		look.toggle("outlines", () -> s.outlines, v -> s.outlines = v);

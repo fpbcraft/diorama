@@ -545,7 +545,7 @@ public final class MapScreen extends Screen {
 		} else {
 			this.pins = List.of();
 		}
-		WaypointOverlay.Pin hoveredPin = WaypointOverlay.under(this.pins, mouseX, mouseY);
+		WaypointOverlay.Pin hoveredPin = WaypointOverlay.underHover(this.pins, mouseX, mouseY);
 		WaypointOverlay.draw(graphics, view, this.pins, true, hoveredPin);
 		Radar.draw(graphics, view, this.blips, true, true);
 		Markers.player(graphics, view.screenX(playerU), view.screenY(playerV), Markers.onMap(viewer.getViewYRot(a)), 6);

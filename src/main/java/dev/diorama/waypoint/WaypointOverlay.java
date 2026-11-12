@@ -4,6 +4,7 @@ import dev.diorama.Projection;
 import dev.diorama.Settings;
 import dev.diorama.render.Circle;
 import dev.diorama.render.Pins;
+import dev.diorama.render.TextSize;
 import dev.diorama.render.MapViewport;
 import java.util.ArrayList;
 import java.util.List;
@@ -118,8 +119,11 @@ public final class WaypointOverlay {
 			if (fullscreen && !pin.clamped() && named) {
 				String name = waypoint.shownName();
 				int w = font.width(name);
+				float textScale = TextSize.scale(Settings.get().waypointLabelTextSize);
 				graphics.pose().pushMatrix();
-				graphics.pose().translate(pin.x() - w / 2.0F, pin.y() + Pins.SHADOW * pin.scale());
+				graphics.pose().translate(pin.x() - w * textScale / 2.0F,
+					pin.y() + Pins.SHADOW * pin.scale());
+				graphics.pose().scale(textScale);
 				graphics.fill(-2, -1, w + 2, 9, 0x90000000);
 				graphics.text(font, name, 0, 0, 0xFFFFFFFF, false);
 				graphics.pose().popMatrix();
@@ -128,7 +132,17 @@ public final class WaypointOverlay {
 		graphics.disableScissor();
 	}
 
+	/** Full icon hit area for clicks and context menus. */
 	public static @Nullable Pin under(List<Pin> pins, double mouseX, double mouseY) {
+		return under(pins, mouseX, mouseY, 1.0F);
+	}
+
+	/** Half-sized cursor activation for hover labels and details, without shrinking click targets. */
+	public static @Nullable Pin underHover(List<Pin> pins, double mouseX, double mouseY) {
+		return under(pins, mouseX, mouseY, 0.5F);
+	}
+
+	private static @Nullable Pin under(List<Pin> pins, double mouseX, double mouseY, float reachScale) {
 		Pin best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (Pin pin : pins) {
@@ -136,7 +150,7 @@ public final class WaypointOverlay {
 			// its initials answers along its middle line.
 			if (pin.waypoint().kind == Waypoint.Kind.LIVE) {
 				double distance = Math.hypot(pin.x() - mouseX, pin.y() - mouseY);
-				if (distance < Pins.reach(pin.waypoint(), (int) pin.size()) * pin.scale()
+				if (distance < Pins.reach(pin.waypoint(), (int) pin.size()) * pin.scale() * reachScale
 					&& distance <= bestDistance) {
 					best = pin;
 					bestDistance = distance;
@@ -148,7 +162,7 @@ public final class WaypointOverlay {
 			if (!pin.clamped()) {
 				d = Math.min(d, Math.hypot(pin.x() - mouseX, pin.y() - mouseY));
 			}
-			if (d <= Pins.reach(pin.waypoint(), (int) pin.size()) * pin.scale() && d < bestDistance) {
+			if (d <= Pins.reach(pin.waypoint(), (int) pin.size()) * pin.scale() * reachScale && d < bestDistance) {
 				best = pin;
 				bestDistance = d;
 			}
