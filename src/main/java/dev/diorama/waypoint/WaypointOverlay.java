@@ -121,8 +121,7 @@ public final class WaypointOverlay {
 				int w = font.width(name);
 				float textScale = TextSize.scale(Settings.get().waypointLabelTextSize);
 				graphics.pose().pushMatrix();
-				graphics.pose().translate(pin.x() - w * textScale / 2.0F,
-					pin.y() + Pins.SHADOW * pin.scale());
+				graphics.pose().translate(pin.x() - w * textScale / 2.0F, pin.y() + Pins.SHADOW * pin.scale());
 				graphics.pose().scale(textScale);
 				graphics.fill(-2, -1, w + 2, 9, 0x90000000);
 				graphics.text(font, name, 0, 0, 0xFFFFFFFF, false);
