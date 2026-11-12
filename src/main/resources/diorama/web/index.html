@@ -69,6 +69,18 @@ const extensionApi = createOverlayApi({
     if (dim?.id !== id) { pick(next, false); buildDims(); saveHash(); }
     return true;
   },
+  depthTiles: () => {
+    if (!map?.depth || !dim) return [];
+    const width = canvas.clientWidth / view.scale, height = canvas.clientHeight / view.scale;
+    if ((Math.ceil(width / map.tileUnits) + 1) * (Math.ceil(height / map.tileUnits) + 1) > 64) return [];
+    const out = [];
+    for (const [u, v] of visible(0, view.u - width / 2, view.v - height / 2, canvas.clientWidth, canvas.clientHeight).slice(0, 64)) {
+      const ver = present[0].get(u + "," + v);
+      out.push({ u, v, units: map.tileUnits, pixels: map.tilePixels,
+        url: new URL(dim.folder + "/0/" + u + "_" + v + ".depth?v=" + ver, document.baseURI).href });
+    }
+    return out;
+  },
   navigate: point => {
     if (point.dimension && !extensionApi.setDimension(point.dimension)) return false;
     if (!map || ![point.x, point.y, point.z].every(Number.isFinite)) return false;
@@ -452,6 +464,15 @@ function saveHash() {
 
 load(true);
 draw();
+// Tiny revision polling avoids repeatedly downloading the full tile index. Static proxies work too.
+let revision = 0;
+const checkUpdates = () => {
+  if (document.hidden || map?.live) { setTimeout(checkUpdates, 5000); return; }
+  fetch("updates.json", { cache: "no-store" }).then(response => response.ok ? response.json() : null)
+    .then(update => { if (update && update.updated !== revision) { revision = update.updated; load(false); } })
+    .catch(() => {}).finally(() => setTimeout(checkUpdates, 5000));
+};
+setTimeout(checkUpdates, 5000);
 // Optional server-owned extension configuration, preserved across map restarts.
 fetch("extensions.json", { cache: "no-store" }).then(response => response.ok ? response.json() : null).then(config => {
   if (!config) return;

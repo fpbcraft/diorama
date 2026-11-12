@@ -15,7 +15,9 @@ This is the server's map, and it only runs on a dedicated server. For your own m
 
 The first time, the server draws every part of the world players have spent time in, nearest the middle of the world first, on one background thread. On a 4-core machine that took 25 minutes for Hermitcraft Season 10's world (about 2,200 tiles over three dimensions), with no change to the server's tick time. The page shows tiles as they're drawn.
 
-After that, it redraws only what changed. Each region file records when each of its chunks was last saved, and the web map looks at those times every 5 minutes, the same as vanilla's autosave. A build shows within about 5 minutes of being built, with nothing to press. A chunk saved without any change to its blocks isn't drawn again.
+After that, changed blocks queue their loaded chunk for a snapshot after 30 seconds. Repeated edits coalesce without extending that deadline. At most one chunk per dimension is copied per tick, and busy ticks and saves defer copies. Rendering and file writes remain on the background worker. The browser checks a small revision file every five seconds and refreshes changed tiles.
+
+This targets updates in roughly 30–60 seconds when the worker has capacity; initial renders, large edits and server load can delay them. No unloaded chunk is generated or forced into memory. A saved-region scan every five minutes remains the recovery path for unloaded chunks and queue overflow. A chunk saved without changes to its blocks is not drawn again.
 
 ## Settings
 
@@ -24,6 +26,8 @@ All in `config/diorama-server.properties`:
 | Setting | What it does |
 | --- | --- |
 | `web-map` | `true` to draw the web map. Off by default. |
+| `web-map-update-seconds` | Delay before copying a changed, already loaded chunk. Default 30, range 10–300 seconds. Restart to change. |
+| `web-map-depth` | Optional compressed camera-depth sidecars for 3D vehicle occlusion. Default false. Restart and force-render existing terrain after enabling. Adds a second background geometry pass and disk use. |
 | `web-map-port` | The port of Diorama's own small web server. `0` turns it off, for when you serve the files yourself. Default 8100. |
 | `web-map-address` | The address it listens on. Empty for every address; `127.0.0.1` to only reach it through a web server of your own on the same machine. |
 | `web-map-folder` | Where the map's files go. Empty: `diorama-web` in the world folder. |
@@ -129,3 +133,9 @@ without reloading map tiles. Enable extensions through a server-owned
 `extensions.json` in the generated map directory. For Player History, serve its
 public assets/data and authenticated API using explicit same-origin proxy
 routes; do not link the private recorder directory into the map root.
+
+## Optional hybrid 3D vehicles
+
+The terrain remains Diorama's textured projection, with a GPU vehicle overlay supplied by Player History. Enable `web-map-depth=true` and force-render existing tiles to let terrain hide vehicles behind blocks. This preserves the current fixed map facing and pitch; it does not add BlueMap-style free camera rotation or full terrain meshes.
+
+Dirty queues are bounded to 2,048 chunks per dimension and live snapshots to 256 chunks globally. Larger bursts fall back to saved-region scans. Live snapshots are transient; saved world data remains authoritative across restarts. Existing pause/cancel, share-land, save and tick-load safeguards still apply.
