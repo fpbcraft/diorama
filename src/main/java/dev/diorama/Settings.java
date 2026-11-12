@@ -185,6 +185,23 @@ public final class Settings {
 	/** Last non-OFF preference, so the map's quick toggle preserves fullscreen-only vs minimap too. */
 	public ClaimsShown claimsWhenEnabled = ClaimsShown.ALWAYS;
 
+	/**
+	 * The map in a browser, for a second screen ({@link dev.diorama.web.ClientWebMap}): off, for
+	 * browsers on this computer, or for every device on its network.
+	 */
+	public WebMap webMap = WebMap.OFF;
+	/** The port the web map is served on; the next free one after it if it's taken. Only in the file. */
+	public int webMapPort = DEFAULT_WEB_MAP_PORT;
+
+	public static final int DEFAULT_WEB_MAP_PORT = 8100;
+
+	/** Who can open the web map: nobody, browsers on this computer, or any device on its network. */
+	public enum WebMap {
+		OFF,
+		THIS_COMPUTER,
+		NETWORK
+	}
+
 	/** Where land claims show: nowhere, on the fullscreen map, or on the minimap too. */
 	public enum ClaimsShown {
 		OFF,
@@ -412,6 +429,13 @@ public final class Settings {
 		settings.radarIconScale = snapScale(settings.radarIconScale);
 		if (settings.playerNames == null) {
 			settings.playerNames = NameTags.FULLSCREEN;
+		}
+		if (settings.webMap == null) {
+			settings.webMap = WebMap.OFF;
+		}
+		// Ports under 1024 need rights the game doesn't have; a few above it are tried when it's taken.
+		if (settings.webMapPort < 1024 || settings.webMapPort > 65500) {
+			settings.webMapPort = DEFAULT_WEB_MAP_PORT;
 		}
 		if (settings.claims == null) {
 			settings.claims = ClaimsShown.ALWAYS;

@@ -142,6 +142,9 @@ public final class SettingsScreen extends Screen {
 			overlays.choice("claims", Settings.ClaimsShown.values(), () -> s.claims, v -> s.claims = v);
 		}
 		overlays.choice("drawings", Settings.DrawingsShown.values(), () -> s.drawings, v -> s.drawings = v);
+		// The map in a browser; beside Drawings, so the tab doesn't grow.
+		overlays.choice("web_map", Settings.WebMap.values(), () -> s.webMap, v -> s.webMap = v);
+		overlays.lastTwoSideBySide();
 		// Source layers are separate from saved waypoints and claims, so they can be disabled
 		// independently without changing either the map's saved data or its visibility.
 		overlays.heading("addon_layers");
