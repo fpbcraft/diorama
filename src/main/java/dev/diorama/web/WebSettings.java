@@ -19,10 +19,10 @@ import org.jspecify.annotations.Nullable;
  * @param folder where the tiles go; null for {@code diorama-web} in the world folder
  * @param everyChunk whether every finished chunk is drawn, rather than only land players spent time near
  */
-public record WebSettings(boolean enabled, int port, String address, @Nullable Path folder, boolean everyChunk) {
+public record WebSettings(boolean enabled, int port, String address, @Nullable Path folder, boolean everyChunk, int updateSeconds, boolean depth) {
 	public static final String FILE = "diorama-server.properties";
 	public static final int DEFAULT_PORT = 8100;
-	public static final WebSettings DEFAULTS = new WebSettings(false, DEFAULT_PORT, "", null, false);
+	public static final WebSettings DEFAULTS = new WebSettings(false, DEFAULT_PORT, "", null, false, 30, false);
 
 	/** Reads the settings from {@code configFolder}, adding the web map's to the file if it lacks them. */
 	public static WebSettings load(Path configFolder) {
@@ -70,11 +70,16 @@ public record WebSettings(boolean enabled, int port, String address, @Nullable P
 		String folderText = properties.getProperty("web-map-folder", "").trim();
 		Path folder = folderText.isEmpty() ? null : Path.of(folderText);
 		boolean everyChunk = properties.getProperty("share-land", "visited").trim().toLowerCase(Locale.ROOT).equals("generated");
-		return new WebSettings(enabled, port, address, folder, everyChunk);
+		int updateSeconds = 30;
+		try { updateSeconds = Math.max(10, Math.min(300, Integer.parseInt(properties.getProperty("web-map-update-seconds", "30").trim()))); }
+		catch (NumberFormatException ignored) { Diorama.LOGGER.warn("Invalid web-map-update-seconds; using 30"); }
+		return new WebSettings(enabled, port, address, folder, everyChunk, updateSeconds, Boolean.parseBoolean(properties.getProperty("web-map-depth", "false")));
 	}
 
 	/** Each of the web map's settings: its key, what it means, its default. */
 	private static final String[][] SETTINGS = {
+		{"web-map-depth", "# Export per-pixel depth for hybrid 3D vehicles; adds a surface trace per changed tile.\n", "false"},
+		{"web-map-update-seconds", "# Coalesce live block edits before background tile updates; saves/MSPT safeguards still apply.\n", "30"},
 		{"web-map", """
 			# The web map: this server draws its map, in vanilla colours, for anyone to see in a browser.
 			# Off unless set to true. It covers the same land as the shared map (share-land).

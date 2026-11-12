@@ -87,6 +87,7 @@ public final class WebMap {
 
 	private final MinecraftServer server;
 	private final WebSettings settings;
+	private final LiveTerrain live;
 	private final VanillaTable table;
 	private final Path modsFolder;
 	final Path folder;
@@ -110,6 +111,7 @@ public final class WebMap {
 	private WebMap(MinecraftServer server, WebSettings settings, VanillaTable table, Path modsFolder) {
 		this.server = server;
 		this.settings = settings;
+		this.live = new LiveTerrain(settings.updateSeconds() * 1000L);
 		this.table = table;
 		this.modsFolder = modsFolder;
 		this.folder = settings.folder() != null ? settings.folder() : server.getWorldPath(LevelResource.ROOT).resolve("diorama-web");
@@ -146,6 +148,47 @@ public final class WebMap {
 		if (map != null) {
 			map.stop();
 		}
+	}
+
+	/** Cheap dirty notification: no world reads, disk IO or rendering. */
+	public static void blockChanged(ServerLevel level, net.minecraft.core.BlockPos pos) {
+		WebMap map = running;
+		if (map != null && !map.stopping && level.getServer().isSameThread()) map.live.mark(level, pos);
+	}
+	/** At most one loaded-chunk copy per level tick; busy servers defer capture. */
+	public static void tick(ServerLevel level) {
+		WebMap map = running;
+		if (map == null || map.stopping || map.paused || map.serverBehind() || map.server.isCurrentlySaving()) return;
+		try {
+			if (map.live.capture(level, map.settings.everyChunk())) synchronized (map.wake) { map.wake.notifyAll(); }
+		} catch (RuntimeException | LinkageError error) {
+			Diorama.LOGGER.warn("Couldn't capture a live web-map chunk; saved-world rendering remains available", error);
+		}
+	}
+	private boolean handleLiveUpdates(TableLooks looks) {
+		if (this.paused || !this.live.hasUpdates()) return false;
+		Set<Dimension> changed = new HashSet<>();
+		for (LiveTerrain.Changed update : this.live.drain()) {
+			for (ServerLevel level : this.server.getAllLevels()) {
+				if (!level.dimension().identifier().toString().equals(update.dimension())) continue;
+				Dimension dimension = this.dimensions.computeIfAbsent(update.dimension(), id -> new Dimension(this, level, id));
+				Set<Long> tiles = new HashSet<>();
+				ChunkSnapshot snapshot = update.snapshot();
+				// Include the old structure's full height: removing a tower must clear its former pixels/shadows.
+				Dimension.Drawn previous = dimension.drawn.get(update.key());
+				dimension.markTiles(snapshot.chunkX, snapshot.chunkZ,
+					previous == null ? level.getMaxY() : Math.max(previous.top(), snapshot.maxY),
+					previous == null ? level.getMinY() : Math.min(previous.floor(), snapshot.floorY), tiles);
+				dimension.source.clear();
+				dimension.pending.addFirst(tiles);
+				dimension.pending.save();
+				dimension.queuedCount = dimension.pending.size();
+				changed.add(dimension);
+				break;
+			}
+		}
+		for (Dimension dimension : changed) dimension.renderQueued(looks, 32);
+		return !changed.isEmpty();
 	}
 
 	/** The running web map, or null. */
@@ -223,6 +266,7 @@ public final class WebMap {
 	}
 
 	public void cancel() {
+		this.live.cancel();
 		this.cancelRequested.set(true);
 		this.paused = true;
 		synchronized (this.wake) { this.wake.notifyAll(); }
@@ -290,6 +334,7 @@ public final class WebMap {
 			// base tile folder is empty (e.g. an older interrupted first pass).
 			// Recover once per dimension on startup without deleting any stored data.
 			Set<String> checkedEmptyProgress = new HashSet<>();
+			long nextSavedScan = 0;
 
 			while (!this.stopping) {
 				this.awaitActive();
@@ -303,10 +348,25 @@ public final class WebMap {
 					continue;
 				}
 				this.handleRequests(looks);
+				this.handleLiveUpdates(looks);
+				if (System.currentTimeMillis() < nextSavedScan && !this.redrawAll.get() && this.requested.isEmpty()) {
+					boolean pending = false;
+					for (Dimension dimension : this.dimensions.values()) {
+						if (dimension.pending.size() == 0) continue;
+						pending = true;
+						dimension.renderQueued(looks, 32);
+					}
+					if (pending) {
+						// Continue bounded batches without another region scan; avoid spinning on disk errors.
+						sleep(1000);
+					} else this.waitForChanges(progress, nextSavedScan);
+					continue;
+				}
 				boolean all = this.redrawAll.getAndSet(false) || this.redrawOwed;
 				boolean force = this.forceAll.getAndSet(false);
 				this.redrawOwed = false;
 				long passStarted = System.currentTimeMillis();
+				nextSavedScan = passStarted + PASS_GAP_MS;
 				boolean complete = true;
 				String interruptedAt = null;
 				for (ServerLevel level : this.server.getAllLevels()) {
@@ -398,7 +458,7 @@ public final class WebMap {
 					return;
 				}
 			}
-			if (this.stopping || this.redrawAll.get() || !this.requested.isEmpty()) return;
+			if (this.stopping || this.redrawAll.get() || !this.requested.isEmpty() || this.live.hasUpdates()) return;
 			if (System.currentTimeMillis() < notBefore) {
 				continue;
 			}
@@ -507,6 +567,7 @@ public final class WebMap {
 			.append(",\"sin\":").append(String.format(Locale.ROOT, "%.6f", Projection.sin()))
 			.append(",\"cos\":").append(String.format(Locale.ROOT, "%.6f", Projection.cos()))
 			.append(",\"facing\":").append(Projection.facing().turns)
+			.append(",\"depth\":").append(this.settings.depth())
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())
 			.append(",\"dimensions\":[");
@@ -526,6 +587,9 @@ public final class WebMap {
 		try {
 			Files.writeString(part, json, StandardCharsets.UTF_8);
 			Files.move(part, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			Path revision = this.folder.resolve("updates.json.part");
+			Files.writeString(revision, "{\"updated\":" + Files.getLastModifiedTime(file).toMillis() + "}");
+			Files.move(revision, this.folder.resolve("updates.json"), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 		} catch (IOException e) {
 			Diorama.LOGGER.warn("Couldn't write the web map's map.json", e);
 		}
@@ -568,7 +632,7 @@ public final class WebMap {
 			ChunkSource bounds = new ChunkSource() {
 				@Override
 				public @Nullable ChunkSnapshot chunk(int chunkX, int chunkZ) {
-					return null;
+					return map.live.chunk(id, chunkX, chunkZ);
 				}
 
 				@Override
@@ -742,6 +806,7 @@ public final class WebMap {
 			for (int index = cursor; index < ordered.size(); index++) {
 				this.map.awaitActive();
 				if (!this.map.requested.isEmpty()) this.map.handleRequests(looks);
+				this.map.handleLiveUpdates(looks);
 				if (this.map.stopping()) {
 					this.map.setStatus("interrupted " + this.id + " scan after " + index + "/" + ordered.size()
 						+ " regions: " + (this.map.shuttingDown() ? "server stopped" : "redraw requested"));
@@ -757,6 +822,7 @@ public final class WebMap {
 					any = true;
 					int chunkX = regionX * 32 + (i & 31);
 					int chunkZ = regionZ * 32 + (i >> 5);
+					this.map.live.saved(this.id, chunkX, chunkZ, times[i]);
 					boolean wasShown = last >= 0 && (this.map.settings.everyChunk() || this.shows(chunkX, chunkZ));
 					this.forget(chunkX, chunkZ);
 					changed++;
@@ -851,6 +917,9 @@ public final class WebMap {
 
 		/** Renders at most limit pending tiles, with the same tick/save safeguards as before. */
 		private boolean renderQueued(TableLooks looks, int limit) {
+			this.map.live.beginRender();
+			this.source.clear();
+			try {
 			Set<Long> rendered = new HashSet<>();
 			int processed = 0;
 			int skippedTiles = 0;
@@ -898,6 +967,17 @@ public final class WebMap {
 					continue;
 				}
 				try {
+					Path depthFile = this.folder.resolve("0").resolve(u + "_" + v + ".depth");
+					if (this.map.settings.depth()) {
+						try {
+							var surface = TileBaker.surface(new TileKey(TileKey.SURFACE, u, v), 0, this.source, looks, false,
+								0, 0, Projection.TILE_PIXELS, Projection.TILE_PIXELS);
+							WebDepth.write(depthFile, surface);
+						} catch (RuntimeException | LinkageError | StackOverflowError error) {
+							Files.deleteIfExists(depthFile);
+							Diorama.LOGGER.warn("Couldn't trace terrain depth for {} {},{}; publishing colour only", this.id, u, v, error);
+						}
+					} else Files.deleteIfExists(depthFile);
 					long size = WebTiles.write(WebTiles.file(this.folder, 0, u, v), pixels);
 					if (size > 0) this.tiles[0].add(tile);
 					else this.tiles[0].remove(tile);
@@ -935,6 +1015,8 @@ public final class WebMap {
 				return false;
 			}
 			return !this.map.stopping();
+
+			} finally { this.map.live.endRender(); }
 		}
 
 

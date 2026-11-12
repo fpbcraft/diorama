@@ -4,7 +4,9 @@
 	"compatibilityLevel": "JAVA_${java}",
 	"mixins": [
 		"BiomeManagerAccessor",
-		"ChunkMapInvoker"
+		"ChunkMapInvoker",
+    "WebMapChunkMixin",
+    "WebMapTickMixin"
 	],
 	"client": [
 		"ChatComponentMixin",

@@ -70,3 +70,11 @@ stubs and checks traversal, external symlinks, MIME types, GET/HEAD, immutable
 versioned tiles/modules, conditional tiles and fresh live JSON. It never starts
 a Minecraft world. Build the mod with Java 25:
 `./gradlew :1.21.1-neoforge:build`.
+
+## Optional terrain depth
+
+`depthTiles()` returns visible base-tile descriptors `{u,v,units,pixels,url}` when depth is enabled. It returns an empty list when unavailable or when the viewport would exceed 64 base tiles. Consumers must tolerate missing sidecars and fall back to markers or unoccluded models. URLs include the same tile revision as colour images. `map.json` advertises `depth`; `updates.json` is a small revision hint, polled every five seconds with the ordinary metadata refresh retained as a fallback.
+
+Each `.depth` file starts with 16 bytes: ASCII `DDEP`, little-endian uint32 version (2), width and height. The remainder is a zlib-compressed array of little-endian Float32 camera depths in row-major pixel order. NaN means no surface. Depth is the rasterizer's camera coordinate, not world Y. Clients may also accept the original uncompressed version 1. These files are optional, public terrain data and pass through the same HTTP root-containment checks as JPEGs.
+
+Run `node scripts/test-web-terrain.mjs` for dirty-queue deadlines/capacity and production depth-writer round trips. This isolated check does not validate Minecraft mixins or a modded server.
