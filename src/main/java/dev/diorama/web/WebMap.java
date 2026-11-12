@@ -843,7 +843,8 @@ public final class WebMap {
 		private boolean renderQueued(TableLooks looks, int limit) {
 			Set<Long> rendered = new HashSet<>();
 			int processed = 0;
-			int failures = 0;
+			int skippedTiles = 0;
+			boolean writeFailed = false;
 			long lastWaitLog = 0;
 			for (long tile : this.pending.snapshot()) {
 				this.map.awaitActive();
@@ -874,27 +875,36 @@ public final class WebMap {
 					+ ", pending=" + this.pending.size() + ", tick "
 					+ String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()) + " ms");
 				long tileStart = System.nanoTime();
+				int[] pixels;
 				try {
-					int[] pixels = TileBaker.reference(new TileKey(TileKey.SURFACE, u, v), this.source, looks, false, null, null);
+					pixels = TileBaker.reference(new TileKey(TileKey.SURFACE, u, v), this.source, looks, false, null, null);
+				} catch (RuntimeException | LinkageError | StackOverflowError e) {
+					// As before, a single modded block or model must not block the whole queue.
+					// This tile is retried when land changes or by force-render.
+					skippedTiles++;
+					this.pending.remove(tile);
+					processed++;
+					Diorama.LOGGER.warn("Couldn't bake web-map tile {} {},{}; skipping until a later update or force-render", this.id, u, v, e);
+					continue;
+				}
+				try {
 					long size = WebTiles.write(WebTiles.file(this.folder, 0, u, v), pixels);
-					if (size > 0) {
-						this.tiles[0].add(tile);
-					} else {
-						this.tiles[0].remove(tile);
-					}
+					if (size > 0) this.tiles[0].add(tile);
+					else this.tiles[0].remove(tile);
 					rendered.add(tile);
 					this.pending.remove(tile);
 					processed++;
-				} catch (IOException | RuntimeException | LinkageError | StackOverflowError e) {
-					failures++;
-					Diorama.LOGGER.warn("Couldn't render web-map tile {} {},{}", this.id, u, v, e);
+				} catch (IOException e) {
+					// Disk errors are retryable; leave the tile in the durable queue.
+					writeFailed = true;
+					Diorama.LOGGER.warn("Couldn't write web-map tile {} {},{}", this.id, u, v, e);
 				}
 				long took = (System.nanoTime() - tileStart) / 1_000_000;
 				if (took >= 10_000) {
 					Diorama.LOGGER.warn("Web map {}: tile {},{} took {} s, {} pending",
 						this.id, u, v, took / 1000, this.pending.size());
 				}
-				if (failures != 0) break;
+				if (writeFailed) break;
 			}
 			// Save the queue before declaring a scan batch complete; a crash might cause
 			// a harmless duplicate render but cannot silently drop an unfinished tile.
@@ -906,8 +916,12 @@ public final class WebMap {
 				Diorama.LOGGER.info("Web map {}: published {} tiles; {} still queued, zoom levels={}",
 					this.id, processed, this.pending.size(), this.zoomLevels);
 			}
-			if (failures > 0) {
-				this.map.setStatus("incomplete " + this.id + ": " + failures + " tile render failure(s)");
+			if (skippedTiles > 0) {
+				Diorama.LOGGER.warn("Web map {}: skipped {} unrenderable tiles while continuing with the remaining queue",
+					this.id, skippedTiles);
+			}
+			if (writeFailed) {
+				this.map.setStatus("incomplete " + this.id + ": tile write error, will retry");
 				return false;
 			}
 			return !this.map.stopping();
