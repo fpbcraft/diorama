@@ -696,6 +696,9 @@ public final class WebMap {
 				return x * x + z * z;
 			}).thenComparingLong(Map.Entry::getKey));
 			this.source.clear();
+			// Resume only if the region-file identity and ordering are unchanged.
+			long regionFingerprint = 1;
+			for (Map.Entry<Long, int[]> region : ordered) regionFingerprint = 31 * regionFingerprint + region.getKey();
 			int cursor = 0;
 			long previousPass;
 			try {
@@ -706,7 +709,9 @@ public final class WebMap {
 			try {
 				int savedCount = Integer.parseInt(progress.getProperty(prefix + "count", "-1"));
 				long savedLast = Long.parseLong(progress.getProperty(prefix + "since", "0"));
-				if (savedCount == ordered.size() && savedLast == last && !force) {
+				long savedFingerprint = Long.parseLong(progress.getProperty(prefix + "regions", "0"));
+				if (savedCount == ordered.size() && savedLast == last
+						&& savedFingerprint == regionFingerprint && !force) {
 					cursor = Math.max(0, Math.min(ordered.size(), Integer.parseInt(progress.getProperty(prefix + "cursor", "0"))));
 					started = Long.parseLong(progress.getProperty(prefix + "started", Long.toString(started)));
 				}
@@ -797,6 +802,7 @@ public final class WebMap {
 					}
 					progress.setProperty(prefix + "cursor", Integer.toString(index + 1));
 					progress.setProperty(prefix + "count", Integer.toString(ordered.size()));
+					progress.setProperty(prefix + "regions", Long.toString(regionFingerprint));
 					progress.setProperty(prefix + "since", Long.toString(last));
 					progress.setProperty(prefix + "started", Long.toString(started));
 					this.map.saveProgress(progress);
@@ -830,6 +836,7 @@ public final class WebMap {
 			}
 			progress.remove(prefix + "cursor");
 			progress.remove(prefix + "count");
+			progress.remove(prefix + "regions");
 			progress.remove(prefix + "since");
 			progress.remove(prefix + "started");
 			this.map.saveProgress(progress);
@@ -1001,6 +1008,7 @@ public final class WebMap {
 			String prefix = "scan." + this.id + ".";
 			progress.remove(prefix + "cursor");
 			progress.remove(prefix + "count");
+			progress.remove(prefix + "regions");
 			progress.remove(prefix + "since");
 			progress.remove(prefix + "started");
 		}
