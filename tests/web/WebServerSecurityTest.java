@@ -100,6 +100,10 @@ public final class WebServerSecurityTest {
           .header("Content-Type", "application/json")
           .POST(HttpRequest.BodyPublishers.ofString("x".repeat(5000))).build(), HttpResponse.BodyHandlers.ofString());
       check(apiTooLarge.statusCode() == 413, "chat payload limit");
+      var htmlForm = client.send(HttpRequest.newBuilder(URI.create(origin + "/player-history-api/pair"))
+          .header("Content-Type", "application/x-www-form-urlencoded")
+          .POST(HttpRequest.BodyPublishers.ofString("pair=true")).build(), HttpResponse.BodyHandlers.ofString());
+      check(htmlForm.statusCode() == 415, "cross-site form cannot be upgraded to JSON");
 
       WebExtensions.unregister("test-history");
       check(get(client, origin + "/extensions.auto.json").body().equals("{\"scripts\":[],\"styles\":[]}"), "unregister clears virtual manifest");
