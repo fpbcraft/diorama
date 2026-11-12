@@ -49,6 +49,14 @@ final class WebTileQueue {
 		this.entries.addAll(tiles);
 	}
 
+	/** Operator-requested tiles take priority over background discovery tasks. */
+	void addFirst(Collection<Long> tiles) {
+		LinkedHashSet<Long> first = new LinkedHashSet<>(tiles);
+		first.addAll(this.entries);
+		this.entries.clear();
+		this.entries.addAll(first);
+	}
+
 	void add(long tile) {
 		this.entries.add(tile);
 	}
