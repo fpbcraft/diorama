@@ -18,13 +18,12 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Waypoints in the world: each one is projected through the game camera and drawn on the HUD as
- * a pin standing on its spot, with the distance under it, so it shows through terrain at any range. The name appears when it
- * is near the crosshair or close by, which keeps a screen full of waypoints readable. The World size
- * setting sizes the pin and the text together. Under the pins go the beams ({@link WaypointBeams})
- * of the waypoints the beam setting picks.
+ * a pin standing on its spot, with distance shown only while the crosshair aims at it.
+ * Names remain configurable, and icon and label text sizes are independent. Under the pins
+ * go the beams ({@link WaypointBeams}) of the waypoints the beam setting picks.
  */
 public final class WaypointHud implements HudElement {
-	/** Within this many GUI pixels of the crosshair a waypoint shows its name. */
+	/** Within this many GUI pixels of the crosshair a waypoint reveals its distance. */
 	private static final float NAME_RADIUS = 20;
 	/** Within this many blocks a waypoint always shows its name. */
 	private static final double NAME_DISTANCE = 48;
@@ -45,6 +44,11 @@ public final class WaypointHud implements HudElement {
 			result = result == null ? meters : result + " · " + meters;
 		}
 		return result;
+	}
+
+	/** True only when the waypoint is in the 20-GUI-pixel crosshair radius. */
+	public static boolean aimedAt(float x, float y, float width, float height) {
+		return Math.hypot(x - width / 2, y - height / 2) < NAME_RADIUS;
 	}
 
 	@Override
@@ -111,7 +115,7 @@ public final class WaypointHud implements HudElement {
 			float sy = screen[1];
 			double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 			Settings.WaypointLabels labels = Settings.get().waypointLabels;
-			boolean nearCrosshair = Math.hypot(sx - width / 2, sy - height / 2) < NAME_RADIUS;
+			boolean nearCrosshair = aimedAt(sx, sy, width, height);
 			String text = labelText(waypoint.shownName(), Math.round(distance), labels, nearCrosshair, distance < NAME_DISTANCE);
 			int w = text == null ? 0 : font.width(text);
 			// It stays until the pin and the text under it have both left the screen: big text is

@@ -2,6 +2,7 @@ package dev.diorama.test;
 
 import dev.diorama.Settings;
 import dev.diorama.waypoint.Waypoint;
+import dev.diorama.waypoint.WaypointHud;
 import dev.diorama.waypoint.WaypointStore;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -41,6 +42,7 @@ final class WaypointTextSizeTest {
 	}
 
 	static void run(ClientGameTestContext context, TestSingleplayerContext world) {
+		verifyHoverLabels();
 		world.getServer().runCommand("time set noon");
 		world.getServer().runCommand("weather clear");
 		world.getServer().runCommand("difficulty peaceful");
@@ -106,6 +108,24 @@ final class WaypointTextSizeTest {
 			WaypointStore store = WaypointStore.get();
 			store.all().stream().toList().forEach(store::remove);
 		});
+	}
+
+	/** Preserve the display modes while preventing distance from leaking on unhovered pins. */
+	private static void verifyHoverLabels() {
+		if (!"Base".equals(WaypointHud.labelText("Base", 120, Settings.WaypointLabels.AUTO, false, true))
+			|| WaypointHud.labelText("Base", 120, Settings.WaypointLabels.AUTO, false, false) != null
+			|| !"Base · 120 m".equals(WaypointHud.labelText("Base", 120, Settings.WaypointLabels.AUTO, true, false))
+			|| !"Base".equals(WaypointHud.labelText("Base", 120, Settings.WaypointLabels.ALWAYS, false, false))
+			|| !"120 m".equals(WaypointHud.labelText("Base", 120, Settings.WaypointLabels.DISTANCE, true, false))
+			|| WaypointHud.labelText("Base", 120, Settings.WaypointLabels.DISTANCE, false, false) != null
+			|| WaypointHud.labelText("Base", 120, Settings.WaypointLabels.NONE, true, true) != null) {
+			throw new AssertionError("Waypoint labels must reveal distance only while aimed at");
+		}
+		if (!WaypointHud.aimedAt(519, 300, 1000, 600)
+			|| WaypointHud.aimedAt(520, 300, 1000, 600)
+			|| WaypointHud.aimedAt(539, 300, 1000, 600)) {
+			throw new AssertionError("Waypoint crosshair activation must have a 20 GUI-pixel radius");
+		}
 	}
 
 	/**
