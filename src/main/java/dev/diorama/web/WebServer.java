@@ -83,6 +83,7 @@ final class WebServer {
 			if (path.equals("/") || path.isEmpty()) {
 				path = "/index.html";
 			}
+			if (WebExtensions.serve(exchange, path)) return;
 			Path file = root.resolve(path.substring(1)).normalize();
 			// Only public map assets within the real map root.
 			String name = file.getFileName() == null ? "" : file.getFileName().toString();
