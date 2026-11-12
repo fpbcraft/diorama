@@ -252,6 +252,12 @@ public final class WebExtensions {
 			send(exchange, 404, "application/json", "no-store", null);
 			return;
 		}
+		// Preserve the recorder's JSON-only POST policy. Never upgrade a cross-site
+		// HTML form submission to application/json on behalf of its sender.
+		if (method.equals("POST") && !"application/json".equals(exchange.getRequestHeaders().getFirst("Content-Type"))) {
+			send(exchange, 415, "application/json", "no-store", null);
+			return;
+		}
 		byte[] data = method.equals("POST") ? exchange.getRequestBody().readNBytes(4097) : new byte[0];
 		if (data.length > 4096) {
 			send(exchange, 413, "application/json", "no-store", null);
