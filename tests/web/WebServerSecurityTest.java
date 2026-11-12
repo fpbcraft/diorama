@@ -20,6 +20,16 @@ public final class WebServerSecurityTest {
     Files.writeString(root.resolve("modules/v1/live.js"), "export {};");
     Files.writeString(temp.resolve("secret.json"), "private");
     Files.createSymbolicLink(root.resolve("escape.json"), temp.resolve("secret.json"));
+    Path history = Files.createDirectory(temp.resolve("public-history"));
+    Files.writeString(history.resolve("manifest.json"), "{\"protocolVersion\":2}");
+    Files.createSymbolicLink(history.resolve("escape.json"), temp.resolve("secret.json"));
+    Path publicAssets = Files.createDirectory(temp.resolve("published-assets"));
+    Files.writeString(publicAssets.resolve("world-status.json"), "{\"dayTime\":123}");
+    WebExtensions.registerAssets("test-history", "/player-history/", WebServerSecurityTest.class,
+      "/dev/diorama/web/", java.util.List.of("test-embedded.js"),
+      java.util.List.of("/player-history/test-embedded.js"), java.util.List.of());
+    WebExtensions.registerPublicFiles("test-history", "/player-history/data/", () -> history);
+    WebExtensions.registerPublicFiles("test-history", "/player-history/", () -> publicAssets);
     WebServer server = WebServer.start(root, "127.0.0.1", 0);
     if (server == null) throw new AssertionError("server did not start");
     var client = HttpClient.newHttpClient();
@@ -43,7 +53,30 @@ public final class WebServerSecurityTest {
       check(head.statusCode() == 200 && head.body().isEmpty(), "HEAD");
       var post = client.send(HttpRequest.newBuilder(URI.create(origin + "/map.json")).POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
       check(post.statusCode() == 405, "read-only server");
-      System.out.println("Production WebServer security, MIME and cache checks passed");
+
+      // JAR assets and public history must work without a physical extensions.json
+      // or a symlink to the recorder's private directory.
+      var generated = get(client, origin + "/extensions.auto.json");
+      check(generated.statusCode() == 200 && generated.body().contains("/player-history/test-embedded.js"), "virtual JAR manifest");
+      check(get(client, origin + "/player-history/test-embedded.js").body().contains("fromJar"), "classpath JS");
+      check(get(client, origin + "/player-history/data/manifest.json").body().contains("protocolVersion"), "public history read");
+      check(get(client, origin + "/player-history/world-status.json").statusCode() == 200, "public publisher read");
+      check(get(client, origin + "/player-history/data/escape.json").statusCode() == 404, "public file symlink rejected");
+      check(get(client, origin + "/player-history/data/%2e%2e/secret.json").statusCode() == 404, "public traversal rejected");
+      check(get(client, origin + "/player-history/data/missing.json").statusCode() == 404, "public missing file");
+      check(get(client, origin + "/player-history/data/manifest.json").headers().firstValue("Cache-Control").orElse("").equals("no-cache"), "public data cache");
+      check(get(client, origin + "/player-history/data/secret.toml").statusCode() == 404, "private format not served");
+      var publicWrite = client.send(HttpRequest.newBuilder(URI.create(origin + "/player-history/data/manifest.json"))
+        .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+      check(publicWrite.statusCode() == 405, "public file write rejected");
+      var publicHead = client.send(HttpRequest.newBuilder(URI.create(origin + "/player-history/data/manifest.json"))
+        .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+      check(publicHead.statusCode() == 200 && publicHead.body().isEmpty(), "public HEAD");
+
+      WebExtensions.unregister("test-history");
+      check(get(client, origin + "/extensions.auto.json").body().equals("{\"scripts\":[],\"styles\":[]}"), "unregister clears virtual manifest");
+      check(get(client, origin + "/player-history/data/manifest.json").statusCode() == 404, "unregister revokes data mount");
+      System.out.println("Production WebServer and JAR/public-data extension security checks passed");
     } finally {
       server.stop();
       try (var paths = Files.walk(temp)) { for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) Files.delete(path); }
