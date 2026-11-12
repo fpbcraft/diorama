@@ -774,7 +774,7 @@ public final class WebMap {
 						: last >= 0 ? this.level.getMinY() : summary.floorY();
 					this.markTiles(chunkX, chunkZ, top, floor, dirty);
 					if (last < 0 && (before != null && before.blocks() != info.blocks()
-							|| before == null && previousPass >= 0 && times[i] >= previousPass)) {
+							|| before == null && (previousPass < 0 || times[i] >= previousPass))) {
 						this.markTiles(chunkX, chunkZ, top, floor, changedTiles);
 					}
 				}
