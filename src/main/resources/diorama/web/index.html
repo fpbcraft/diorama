@@ -473,22 +473,39 @@ const checkUpdates = () => {
     .catch(() => {}).finally(() => setTimeout(checkUpdates, 5000));
 };
 setTimeout(checkUpdates, 5000);
-// Optional server-owned extension configuration, preserved across map restarts.
-fetch("extensions.json", { cache: "no-store" }).then(response => response.ok ? response.json() : null).then(config => {
-  if (!config) return;
-  for (const [kind, paths] of [["style", config.styles], ["script", config.scripts]]) {
-    if (!Array.isArray(paths)) continue;
-    for (const path of paths.slice(0, 16)) {
-      if (typeof path !== "string") continue;
-      const url = new URL(path, document.baseURI);
-      if (url.origin !== location.origin) continue;
-      const element = document.createElement(kind === "style" ? "link" : "script");
-      if (kind === "style") { element.rel = "stylesheet"; element.href = url.href; }
-      else { element.type = "module"; element.src = url.href; }
-      document.head.append(element);
+// Keep the user-managed extensions.json intact. The server provides a second,
+// virtual manifest for JAR-backed extensions. Both are optional and deduplicated.
+Promise.all(["extensions.json", "extensions.auto.json"].map(async file => {
+  try {
+    const response = await fetch(file, { cache: "no-store" });
+    return response.ok ? await response.json() : null;
+  } catch (error) {
+    console.warn("Diorama could not read " + file, error);
+    return null;
+  }
+})).then(configs => {
+  const loaded = new Set();
+  for (const config of configs) {
+    if (!config) continue;
+    for (const [kind, paths] of [["style", config.styles], ["script", config.scripts]]) {
+      if (!Array.isArray(paths)) continue;
+      for (const path of paths.slice(0, 16)) {
+        if (typeof path !== "string") continue;
+        let url;
+        try { url = new URL(path, document.baseURI); }
+        catch { continue; }
+        if (url.origin !== location.origin || !["http:", "https:"].includes(url.protocol)) continue;
+        const key = kind + ":" + url.href;
+        if (loaded.has(key)) continue;
+        loaded.add(key);
+        const element = document.createElement(kind === "style" ? "link" : "script");
+        if (kind === "style") { element.rel = "stylesheet"; element.href = url.href; }
+        else { element.type = "module"; element.src = url.href; }
+        document.head.append(element);
+      }
     }
   }
-}).catch(error => console.warn("Diorama extensions unavailable", error));
+}).catch(error => console.warn("Diorama extension initialization failed", error));
 </script>
 </body>
 </html>

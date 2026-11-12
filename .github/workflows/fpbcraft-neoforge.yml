@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - feat/upstream-feature-sync-20261112
+      - feat/diorama-jar-managed-history
   workflow_dispatch:
 
 permissions:

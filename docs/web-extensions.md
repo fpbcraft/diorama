@@ -6,6 +6,42 @@ for metadata, dimension, pan, zoom and resize updates. Extensions may repaint
 without calling the terrain renderer; their canvas is composited above tiles.
 The terrain-only viewer has no build-time frontend dependencies.
 
+## Server-side JAR extensions (no manual assets)
+
+The dedicated map's server can now register optional extensions at runtime.
+A mod may package its browser assets inside its own JAR and register them
+through `dev.diorama.web.WebExtensions`:
+
+- `registerAssets(id, urlPrefix, ownerClass, classpathPrefix, allowedFiles, scripts, styles)`:
+  serves only explicitly listed JAR resources and announces the entrypoints
+  in the generated `/extensions.auto.json` manifest
+- `registerPublicFiles(id, urlPrefix, rootSupplier)`: read-only public export
+  root with per-request path and symlink checks; GET/HEAD only
+- `registerLoopbackApi(id, urlPrefix, port)`: optional bounded loopback
+  adapter for Player History's existing JSON chat operations only
+- `unregister(id)`: removes all registered extension routes and entrypoints
+
+The browser reads **both** `extensions.auto.json` and the existing optional
+`extensions.json`, deduplicating entries. Neither manifest requires physically
+copying frontend assets into the map folder. Registration may happen before
+or after the Diorama web server starts; new registrations take effect on browser
+refresh, with no separate port or additional HTTP server.
+
+`registerPublicFiles` is intentionally explicit, not a general filesystem
+mount or an allowance for following symlinks. Callers must provide an approved
+public directory; never expose a history recorder's private database. Classpath
+assets are limited to a validated build manifest rather than arbitrary JAR
+resources. The loopback adapter does not accept an arbitrary destination URL.
+
+**Player History integration:** the updated `player-history-public-assets` JAR
+registers the frontend, existing public recorder export and publisher assets
+automatically (see
+[Player History's deployment docs](https://github.com/fpbcraft/player-history-mc/blob/main/docs/diorama-web.md)).
+No manual `extensions.json`, JavaScript copying or proxy configuration is
+required for read-only history on the embedded server.
+
+### Manual extensions
+
 Put optional `extensions.json` in the generated map directory:
 
 ```json
