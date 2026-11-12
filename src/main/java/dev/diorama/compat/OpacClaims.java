@@ -114,35 +114,10 @@ public final class OpacClaims {
 	}
 
 	/** Called by Claims.tick, after the world and provider are selected. */
+	/** Listen for authoritative claim action results; upstream's native OPAC adapter draws claims. */
 	public static void tick(Minecraft mc) {
-		if (!available(mc)) {
-			return;
-		}
+		if (!available(mc)) return;
 		try {
-			if (subscribedManager != manager) {
-				Class<?> type = Class.forName("xaero.pac.common.claims.tracker.api.IClaimsManagerListenerAPI");
-				InvocationHandler handler = (proxy, method, args) -> {
-					if (method.getDeclaringClass() == Object.class) {
-						return switch (method.getName()) {
-							case "hashCode" -> System.identityHashCode(proxy);
-							case "equals" -> proxy == args[0];
-							default -> "Diorama OPAC claims listener";
-						};
-					}
-					if (args != null && args.length > 0 && dimensionMatches(mc, args[0])) {
-						switch (method.getName()) {
-							case "onChunkChange" -> dirtyChunks.add(key((int) args[1], (int) args[2]));
-							case "onWholeRegionChange" -> dirtyRegions.add(key((int) args[1], (int) args[2]));
-							case "onDimensionChange" -> reload = true;
-							default -> { }
-						}
-					}
-					return null;
-				};
-				listener = Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, handler);
-				call(call(manager, "getTracker"), "register", listener);
-				subscribedManager = manager;
-			}
 			if (subscribedResultsManager != manager) {
 				// Unlike requestAreaClaim (which only sends a packet), this callback carries
 				// the authoritative server result, including failures and partial successes.
@@ -164,48 +139,6 @@ public final class OpacClaims {
 					});
 				call(call(manager, "getClaimResultTracker"), "register", resultListener);
 				subscribedResultsManager = manager;
-			}
-			// OPAC loads its initial sync asynchronously. Never treat an incomplete list as final.
-			if (reload && !Boolean.TRUE.equals(call(manager, "isLoading"))) {
-				Claims.resetOpac();
-				Object dimension = currentDimension(mc);
-				try (Stream<?> dimensions = (Stream<?>) call(manager, "getDimensionStream")) {
-					dimensions.filter(d -> {
-						try {
-							return dimension.equals(call(d, "getDimension"));
-						} catch (ReflectiveOperationException e) {
-							return false;
-						}
-					}).forEach(d -> {
-						try (Stream<?> regions = (Stream<?>) call(d, "getRegionStream")) {
-							regions.forEach(r -> readRegion(mc.level.dimension(), dimension, r));
-						} catch (ReflectiveOperationException e) {
-							throw new IllegalStateException(e);
-						}
-					});
-				}
-				reload = false;
-				dirtyChunks.clear();
-				dirtyRegions.clear();
-			}
-			if (!reload) {
-				Object dim = currentDimension(mc);
-				for (long packed : dirtyRegions) {
-					Object dimensionClaims = call(manager, "getDimension", dim);
-					Object region = dimensionClaims == null ? null : call(dimensionClaims, "getRegion", high(packed), low(packed));
-					if (region != null) {
-						readRegion(mc.level.dimension(), dim, region);
-					} else {
-						clearRegion(mc.level.dimension(), high(packed), low(packed));
-					}
-				}
-				dirtyRegions.clear();
-				for (long packed : dirtyChunks) {
-					int x = high(packed), z = low(packed);
-					Object claim = call(manager, "get", dim, x, z);
-					Claims.updatedOpac(mc.level.dimension(), x, z, describe(claim, dim));
-				}
-				dirtyChunks.clear();
 			}
 		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
 			warn(e);

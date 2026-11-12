@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -32,6 +33,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.FoliageColor;
@@ -64,6 +67,17 @@ public final class WebMap {
 	private static final long PASS_GAP_MS = 5 * 60_000;
 	/** A tick past this and the server is close to slowing down: the map waits. */
 	private static final long SERVER_BEHIND_NANOS = 40_000_000;
+	/** A busy but still sub-50-mspt server may render one tile slowly after this wait. */
+	private static final long BUSY_GRACE_MS = 30_000;
+	private static final long BUSY_TILE_GAP_MS = 15_000;
+	/** Incomplete passes retry soon, without hammering a server whose save is busy. */
+	private static final long RETRY_GAP_MS = 30_000;
+	/** Throttle periodic stage/progress logging so large worlds don't flood the log. */
+	private static final long PROGRESS_LOG_MS = 30_000;
+	/** A pass failed or was interrupted and must retry. */
+	private static final long PASS_INCOMPLETE = -1;
+	/** An incremental pass found nothing changed; it completed successfully. */
+	private static final long PASS_UNCHANGED = -2;
 	/** Blend radius for biome tints: vanilla's default. */
 	private static final int BLEND_RADIUS = 2;
 	/** The most zoom levels out from the map's own tiles. */
@@ -86,6 +100,10 @@ public final class WebMap {
 	/** A full redraw that didn't complete: done again at the next pass, after the usual wait. */
 	private boolean redrawOwed;
 	private volatile String status = "starting";
+	private volatile boolean paused;
+	private final AtomicBoolean cancelRequested = new AtomicBoolean();
+	private final AtomicBoolean forceAll = new AtomicBoolean();
+	private final ConcurrentLinkedQueue<RenderRequest> requested = new ConcurrentLinkedQueue<>();
 	/** Passes over every dimension finished since the server started. */
 	private volatile int passes;
 
@@ -172,11 +190,67 @@ public final class WebMap {
 		}
 	}
 
-	/** Draws everything again, starting now. */
-	public void redrawAll() {
+
+	/** Radius requests stay on the background worker; no disk IO runs on the server thread. */
+	record RenderRequest(String dimension, int x, int z, int radius, boolean force) {}
+
+	public void requestFull(boolean force) {
+		if (force) this.forceAll.set(true);
 		this.redrawAll.set(true);
-		synchronized (this.wake) {
-			this.wake.notifyAll();
+		synchronized (this.wake) { this.wake.notifyAll(); }
+		Diorama.LOGGER.info("Web map: {} full-world render requested", force ? "forced" : "normal");
+	}
+
+	public void redrawAll() { this.requestFull(true); }
+
+	public void requestArea(String dimension, int x, int z, int radius, boolean force) {
+		this.requested.add(new RenderRequest(dimension, x, z, radius, force));
+		synchronized (this.wake) { this.wake.notifyAll(); }
+		Diorama.LOGGER.info("Web map: {} render queued in {} at {},{} radius {}",
+			force ? "forced" : "normal", dimension, x, z, radius);
+	}
+
+	public void pause() {
+		this.paused = true;
+		this.status = "paused by operator";
+	}
+
+	public void resume() {
+		this.paused = false;
+		synchronized (this.wake) { this.wake.notifyAll(); }
+	}
+
+	public void cancel() {
+		this.cancelRequested.set(true);
+		this.paused = true;
+		synchronized (this.wake) { this.wake.notifyAll(); }
+	}
+
+	private int queuedTiles() {
+		return this.dimensions.values().stream().mapToInt(d -> d.queuedCount).sum() + this.requested.size();
+	}
+
+	private void awaitActive() {
+		while (this.paused && !this.stopping && !this.cancelRequested.get()) {
+			this.status = "paused by operator";
+			synchronized (this.wake) {
+				try { this.wake.wait(1000); }
+				catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+			}
+		}
+	}
+
+	/** Process operator region requests between short batches of automatic scanning. */
+	private void handleRequests(TableLooks looks) {
+		RenderRequest request;
+		while ((request = this.requested.poll()) != null && !this.stopping && !this.cancelRequested.get()) {
+			for (ServerLevel level : this.server.getAllLevels()) {
+				if (!level.dimension().identifier().toString().equals(request.dimension())) continue;
+				Dimension dimension = this.dimensions.computeIfAbsent(request.dimension(),
+					id -> new Dimension(this, level, id));
+				dimension.renderArea(looks, request);
+				break;
+			}
 		}
 	}
 
@@ -187,7 +261,10 @@ public final class WebMap {
 
 	/** What the map is doing, for the status command. */
 	public String status() {
-		return this.status;
+		return this.status + "; queued=" + this.queuedTiles()
+			+ ", tick=" + String.format(Locale.ROOT, "%.1f", this.averageTickMs())
+			+ " ms, saving=" + this.server.isCurrentlySaving()
+			+ (this.paused ? ", paused=true" : "");
 	}
 
 	private void run() {
@@ -203,14 +280,33 @@ public final class WebMap {
 			if (!land.equals(progress.getProperty("share-land", land))) {
 				Diorama.LOGGER.info("share-land changed to {}: drawing the whole web map again", land);
 				this.redrawAll.set(true);
+				this.forceAll.set(true);
 			} else {
 				progress.setProperty("share-land", land);
 			}
+			// A stale progress file may claim a dimension was rendered even if the
+			// base tile folder is empty (e.g. an older interrupted first pass).
+			// Recover once per dimension on startup without deleting any stored data.
+			Set<String> checkedEmptyProgress = new HashSet<>();
+
 			while (!this.stopping) {
+				this.awaitActive();
+				if (this.cancelRequested.getAndSet(false)) {
+					for (Dimension dimension : this.dimensions.values()) dimension.cancel(progress);
+					this.requested.clear();
+					this.redrawAll.set(false);
+					this.redrawOwed = false;
+					this.saveProgress(progress);
+					this.status = "cancelled; existing JPEGs kept, use /diorama-web start to resume";
+					continue;
+				}
+				this.handleRequests(looks);
 				boolean all = this.redrawAll.getAndSet(false) || this.redrawOwed;
+				boolean force = this.forceAll.getAndSet(false);
 				this.redrawOwed = false;
 				long passStarted = System.currentTimeMillis();
 				boolean complete = true;
+				String interruptedAt = null;
 				for (ServerLevel level : this.server.getAllLevels()) {
 					if (this.stopping) {
 						break;
@@ -218,31 +314,71 @@ public final class WebMap {
 					String id = level.dimension().identifier().toString();
 					Dimension dimension = this.dimensions.computeIfAbsent(id, key -> new Dimension(this, level, key));
 					long last = all ? -1 : Long.parseLong(progress.getProperty(id, "-1"));
-					long started = dimension.pass(looks, last);
+					if (last >= 0 && dimension.tiles[0].isEmpty() && checkedEmptyProgress.add(id)) {
+						Diorama.LOGGER.warn("Web map {}: progress file says rendering completed, but no base JPEG tiles exist; rescanning saved chunks from scratch", id);
+						last = -1;
+					}
+					long started = dimension.pass(looks, last, progress, force);
 					if (started >= 0) {
 						progress.setProperty(id, Long.toString(started));
 						this.saveProgress(progress);
-					} else if (all) {
+					} else if (started == PASS_INCOMPLETE) {
+						// Never mark interrupted incremental passes as complete. Their in-memory
+						// chunk hashes may already have advanced although tiles weren't written.
 						complete = false;
+						if (interruptedAt == null) {
+							interruptedAt = this.status;
+						}
 					}
 				}
 				if (all && complete && !this.stopping) {
 					// Only now is the map drawn under this share-land: a redraw cut short starts over.
 					progress.setProperty("share-land", land);
 					this.saveProgress(progress);
-				} else if (all && !this.stopping) {
-					// Out of disk, say: again, but not at once.
+				} else if (!complete && !this.stopping) {
+					// Retry the full map, not the partial in-memory snapshot, even when
+					// the failed pass was incremental instead of an explicit redraw.
 					this.redrawOwed = true;
 				}
 				this.writeMapJson();
+				if (!complete && !this.stopping) {
+					if (this.cancelRequested.get()) {
+						this.status = "cancelling pending web-map tasks";
+						continue;
+					}
+					String cause = interruptedAt == null ? "an incomplete dimension pass" : interruptedAt;
+					if (this.redrawAll.get() || !this.requested.isEmpty()) {
+						this.status = "restarting incomplete pass: another redraw was requested";
+					} else {
+						this.status = "incomplete: " + cause + "; retrying in " + RETRY_GAP_MS / 1000 + " s";
+						Diorama.LOGGER.warn("Web map pass incomplete ({}). Retrying the full map in {} s", cause, RETRY_GAP_MS / 1000);
+						this.waitForRetry();
+					}
+					continue;
+				}
 				this.passes++;
-				this.status = "up to date; draws what was saved since at most every " + PASS_GAP_MS / 60_000 + " minutes";
+				int rendered = this.dimensions.values().stream().mapToInt(d -> d.tiles[0].size()).sum();
+				this.status = "up to date: " + rendered + " base tiles across " + this.dimensions.size()
+					+ " dimensions; checks saved chunks at most every " + PASS_GAP_MS / 60_000 + " minutes";
 				this.waitForChanges(progress, passStarted + PASS_GAP_MS);
 			}
 			jars.close();
 		} catch (RuntimeException | Error e) {
 			this.status = "stopped by an error: " + e;
 			Diorama.LOGGER.error("Diorama's web map stopped", e);
+		}
+	}
+
+	/** Retry incomplete passes promptly, but avoid tight retry loops on damaged or busy saves. */
+	private void waitForRetry() {
+		synchronized (this.wake) {
+			if (!this.stopping && !this.redrawAll.get()) {
+				try {
+					this.wake.wait(RETRY_GAP_MS);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+				}
+			}
 		}
 	}
 
@@ -260,7 +396,8 @@ public final class WebMap {
 					return;
 				}
 			}
-			if (this.stopping || this.redrawAll.get() || System.currentTimeMillis() < notBefore) {
+			if (this.stopping || this.redrawAll.get() || !this.requested.isEmpty()) return;
+			if (System.currentTimeMillis() < notBefore) {
 				continue;
 			}
 			if (this.redrawOwed) {
@@ -318,7 +455,7 @@ public final class WebMap {
 	}
 
 	boolean stopping() {
-		return this.stopping || this.redrawAll.get();
+		return this.stopping || this.redrawAll.get() || this.cancelRequested.get();
 	}
 
 	/** Whether the server is shutting down (not a redraw asked for). */
@@ -399,6 +536,8 @@ public final class WebMap {
 		private final Path folder;
 		private final ServerSave save;
 		private final SavedChunkSource source;
+		private final WebTileQueue pending;
+		private volatile int queuedCount;
 		/** Per region, per chunk: whether it's been looked at, and whether the map shows it. */
 		private final Map<Long, long[]> shown = new HashMap<>();
 		/**
@@ -417,6 +556,8 @@ public final class WebMap {
 			this.level = level;
 			this.id = id;
 			this.folder = map.folder.resolve(id.replace(':', '_').replace('/', '_'));
+			this.pending = new WebTileQueue(this.folder);
+			this.queuedCount = this.pending.size();
 			this.save = ServerSave.of(level);
 			int roof = level.dimensionType().hasCeiling() ? level.getMinY() + level.dimensionType().logicalHeight() : ChunkSource.NO_ROOF;
 			int minY = level.getMinY();
@@ -533,34 +674,83 @@ public final class WebMap {
 		 * Draws the tiles of every chunk saved at or after {@code last} (all of them when it's
 		 * negative). Returns when the pass started in region file seconds, or -1 if it was cut short.
 		 */
-		long pass(TableLooks looks, long last) {
+
+		/**
+		 * Progressive region discovery. Every batch durably queues affected base tiles
+		 * before checkpointing its scan cursor, then renders a few tiles immediately.
+		 * This makes the first JPEG available while much of the world remains unscanned.
+		 * On restart, queued tiles and the cursor resume without reprocessing the whole world.
+		 */
+		long pass(TableLooks looks, long last, Properties progress, boolean force) {
 			long started = System.currentTimeMillis() / 1000;
-			long wallStart = System.nanoTime();
-			// Read before the headers: a header that can't be read counts as a failed read too.
+			long wallStart = System.currentTimeMillis();
 			int failedReads = this.save.failedReads();
+			String prefix = "scan." + this.id + ".";
+			this.map.setStatus("scanning region headers for " + this.id);
 			Map<Long, int[]> regions = this.save.scan();
+			List<Map.Entry<Long, int[]>> ordered = new ArrayList<>(regions.entrySet());
+			// Start near spawn instead of the signed-coordinate corner of the world.
+			ordered.sort(Comparator.comparingLong((Map.Entry<Long, int[]> e) -> {
+				long x = (int) (e.getKey() >> 32);
+				long z = (int) (long) e.getKey();
+				return x * x + z * z;
+			}).thenComparingLong(Map.Entry::getKey));
 			this.source.clear();
-			Set<Long> dirty = new HashSet<>();
-			if (last < 0) {
-				// Every tile already drawn too, so ones with nothing left to show go.
-				dirty.addAll(this.tiles[0]);
+			// Resume only if the region-file identity and ordering are unchanged.
+			long regionFingerprint = 1;
+			for (Map.Entry<Long, int[]> region : ordered) regionFingerprint = 31 * regionFingerprint + region.getKey();
+			int cursor = 0;
+			long previousPass;
+			try {
+				previousPass = Long.parseLong(progress.getProperty(this.id, "-1"));
+			} catch (NumberFormatException e) {
+				previousPass = -1;
 			}
-			boolean failed = false;
+			try {
+				int savedCount = Integer.parseInt(progress.getProperty(prefix + "count", "-1"));
+				long savedLast = Long.parseLong(progress.getProperty(prefix + "since", "0"));
+				long savedFingerprint = Long.parseLong(progress.getProperty(prefix + "regions", "0"));
+				if (savedCount == ordered.size() && savedLast == last
+						&& savedFingerprint == regionFingerprint && !force) {
+					cursor = Math.max(0, Math.min(ordered.size(), Integer.parseInt(progress.getProperty(prefix + "cursor", "0"))));
+					started = Long.parseLong(progress.getProperty(prefix + "started", Long.toString(started)));
+				}
+			} catch (NumberFormatException e) {
+				Diorama.LOGGER.warn("Web map {}: invalid scan checkpoint; restarting this scan", this.id);
+			}
+			this.map.setStatus("scanning " + this.id + ": " + cursor + "/" + ordered.size() + " regions, "
+				+ this.pending.size() + " tiles queued");
+			Diorama.LOGGER.info("Web map {}: progressive {} scan, {} region files (resuming at {}), {} pending tiles, tick {} ms",
+				this.id, last < 0 ? "full" : "incremental", ordered.size(), cursor, this.pending.size(),
+				String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()));
+
 			int changed = 0;
 			int counted = 0;
-			for (Map.Entry<Long, int[]> region : regions.entrySet()) {
-				if (this.map.shuttingDown()) {
-					// Reading every chunk of a big world takes a while: not past the server's shutdown.
-					return -1;
+			int batches = 0;
+			long lastLog = System.currentTimeMillis();
+			Set<Long> dirty = new HashSet<>();
+			Set<Long> changedTiles = new HashSet<>();
+			if (force) {
+				// Force redraw must also clear stale JPEGs for land removed from the map.
+				this.pending.addAll(this.tiles[0]);
+				this.queuedCount = this.pending.size();
+				if (!this.pending.save()) return PASS_INCOMPLETE;
+			}
+			for (int index = cursor; index < ordered.size(); index++) {
+				this.map.awaitActive();
+				if (!this.map.requested.isEmpty()) this.map.handleRequests(looks);
+				if (this.map.stopping()) {
+					this.map.setStatus("interrupted " + this.id + " scan after " + index + "/" + ordered.size()
+						+ " regions: " + (this.map.shuttingDown() ? "server stopped" : "redraw requested"));
+					return PASS_INCOMPLETE;
 				}
+				Map.Entry<Long, int[]> region = ordered.get(index);
 				int regionX = (int) (region.getKey() >> 32);
 				int regionZ = (int) (long) region.getKey();
 				int[] times = region.getValue();
 				boolean any = false;
 				for (int i = 0; i < 1024; i++) {
-					if (times[i] == 0 || last >= 0 && times[i] < last) {
-						continue;
-					}
+					if (times[i] == 0 || last >= 0 && times[i] < last) continue;
 					any = true;
 					int chunkX = regionX * 32 + (i & 31);
 					int chunkZ = regionZ * 32 + (i >> 5);
@@ -568,8 +758,8 @@ public final class WebMap {
 					this.forget(chunkX, chunkZ);
 					changed++;
 					ServerSave.Info info = this.save.info(chunkX, chunkZ);
-					if (info == null || !info.summary().finished() || !this.map.settings.everyChunk() && info.inhabited() <= 0) {
-						// No longer on the map (reset, trimmed): where it was drawn is drawn again.
+					if (info == null || !info.summary().finished()
+							|| !this.map.settings.everyChunk() && info.inhabited() <= 0) {
 						Drawn gone = this.drawn.remove(ChunkSnapshot.key(chunkX, chunkZ));
 						if (gone != null) {
 							this.markTiles(chunkX, chunkZ, gone.top(), gone.floor(), dirty);
@@ -579,110 +769,248 @@ public final class WebMap {
 						continue;
 					}
 					ChunkTags.Summary summary = info.summary();
-					long chunk = ChunkSnapshot.key(chunkX, chunkZ);
-					Drawn before = this.drawn.get(chunk);
-					int hash = info.blocks();
-					this.drawn.put(chunk, new Drawn(hash, summary.maxY(), summary.floorY()));
-					// Saved again with the same blocks, still on the map: nothing to draw.
-					if (last >= 0 && wasShown && before != null && before.blocks() == hash) {
-						continue;
-					}
+					long key = ChunkSnapshot.key(chunkX, chunkZ);
+					Drawn before = this.drawn.put(key, new Drawn(info.blocks(), summary.maxY(), summary.floorY()));
+					if (last >= 0 && wasShown && before != null && before.blocks() == info.blocks()) continue;
 					counted++;
-					// As high as it was before, or the world's top if that isn't known: a tower taken
-					// down leaves rows of tiles its new height doesn't reach.
-					int top = before != null ? Math.max(before.top(), summary.maxY()) : last >= 0 ? this.level.getMaxY() : summary.maxY();
-					// And as low: ground raised over a pit leaves rows its new floor doesn't reach.
-					int floor = before != null ? Math.min(before.floor(), summary.floorY()) : last >= 0 ? this.level.getMinY() : summary.floorY();
+					int top = before != null ? Math.max(before.top(), summary.maxY())
+						: last >= 0 ? this.level.getMaxY() : summary.maxY();
+					int floor = before != null ? Math.min(before.floor(), summary.floorY())
+						: last >= 0 ? this.level.getMinY() : summary.floorY();
 					this.markTiles(chunkX, chunkZ, top, floor, dirty);
+					if (last < 0 && (before != null && before.blocks() != info.blocks()
+							|| before == null && (previousPass < 0 || times[i] >= previousPass))) {
+						this.markTiles(chunkX, chunkZ, top, floor, changedTiles);
+					}
 				}
-				if (any) {
-					this.source.forgetTops(region.getKey());
+				if (any) this.source.forgetTops(region.getKey());
+
+				// No more than eight region files or 15 seconds before the first render batch.
+				if ((index + 1) % 8 == 0 || System.currentTimeMillis() - wallStart > 15_000 && index == cursor
+						|| index + 1 == ordered.size()) {
+					// An explicit force/redraw or an incremental change re-renders existing JPEGs.
+					// A normal initial full scan only fills in missing tiles.
+					for (long tile : dirty) {
+						if (force || last >= 0 || changedTiles.contains(tile) || !this.tiles[0].contains(tile)) this.pending.add(tile);
+					}
+					dirty.clear();
+					changedTiles.clear();
+					this.queuedCount = this.pending.size();
+					if (!this.pending.save()) {
+						this.map.setStatus("incomplete " + this.id + ": couldn't persist pending tile queue");
+						return PASS_INCOMPLETE;
+					}
+					progress.setProperty(prefix + "cursor", Integer.toString(index + 1));
+					progress.setProperty(prefix + "count", Integer.toString(ordered.size()));
+					progress.setProperty(prefix + "regions", Long.toString(regionFingerprint));
+					progress.setProperty(prefix + "since", Long.toString(last));
+					progress.setProperty(prefix + "started", Long.toString(started));
+					this.map.saveProgress(progress);
+					// Give rendering a share of CPU now; do not wait for discovery to finish.
+					if (!this.renderQueued(looks, 8)) return PASS_INCOMPLETE;
+					batches++;
+				}
+				long now = System.currentTimeMillis();
+				this.map.setStatus("scanning " + this.id + ": region " + (index + 1) + "/" + ordered.size()
+					+ ", " + this.pending.size() + " pending tiles; tick "
+					+ String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()) + " ms");
+				if (now - lastLog > PROGRESS_LOG_MS) {
+					Diorama.LOGGER.info("Web map {}: scanned {}/{} regions, {} chunks examined, {} map changes, {} pending tiles, tick {} ms, saving={}",
+						this.id, index + 1, ordered.size(), changed, counted, this.pending.size(),
+						String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()), this.map.server.isCurrentlySaving());
+					lastLog = now;
 				}
 			}
-			if (dirty.isEmpty()) {
-				if (this.save.failedReads() != failedReads) {
-					this.drawn.clear();
-					return -1;
-				}
-				return last < 0 || changed > 0 ? started : -1;
+			Diorama.LOGGER.info("Web map {}: region scan complete; {} chunks examined, {} changed, {} queued tiles, {} batches, {} s",
+				this.id, changed, counted, this.pending.size(), batches,
+				(System.currentTimeMillis() - wallStart) / 1000);
+			while (!this.pending.isEmpty() && !this.map.stopping()) {
+				if (!this.renderQueued(looks, 32)) return PASS_INCOMPLETE;
 			}
-			// Nearest the middle of the world first, so the map fills in from spawn outwards.
-			List<Long> order = new ArrayList<>(dirty);
-			order.sort(Comparator.comparingLong(k -> {
-				long u = k >> 32;
-				long v = (int) (long) k;
-				return u * u + v * v;
-			}));
-			ThreadMXBean threads = ManagementFactory.getThreadMXBean();
-			long cpuStart = threads.isCurrentThreadCpuTimeSupported() ? threads.getCurrentThreadCpuTime() : -1;
-			long bytes = 0;
-			int drawn = 0;
-			int empty = 0;
-			double tickSum = 0;
-			double tickMax = 0;
-			for (long key : order) {
-				if (this.map.stopping()) {
-					Diorama.LOGGER.info("Web map pass of {} cut short after {} of {} tiles", this.id, drawn + empty, order.size());
-					return -1;
-				}
-				while ((this.map.serverBehind() || this.map.server.isCurrentlySaving()) && !this.map.stopping()) {
-					// The server needs the processor more: a tick running late, or a save, which a backup
-					// can be waiting on.
-					this.map.setStatus("waiting: the server is behind or saving");
+			if (this.map.stopping()) return PASS_INCOMPLETE;
+			this.source.clear();
+			if (this.save.failedReads() != failedReads) {
+				this.drawn.clear();
+				this.map.setStatus("incomplete " + this.id + ": unreadable saved chunks");
+				return PASS_INCOMPLETE;
+			}
+			progress.remove(prefix + "cursor");
+			progress.remove(prefix + "count");
+			progress.remove(prefix + "regions");
+			progress.remove(prefix + "since");
+			progress.remove(prefix + "started");
+			this.map.saveProgress(progress);
+			Diorama.LOGGER.info("Web map {}: complete; {} base JPEG tiles, {} zoom levels, pending={}, total {} s",
+				this.id, this.tiles[0].size(), this.zoomLevels, this.pending.size(),
+				(System.currentTimeMillis() - wallStart) / 1000);
+			return last < 0 || changed > 0 ? started : PASS_UNCHANGED;
+		}
+
+		/** Renders at most limit pending tiles, with the same tick/save safeguards as before. */
+		private boolean renderQueued(TableLooks looks, int limit) {
+			Set<Long> rendered = new HashSet<>();
+			int processed = 0;
+			int skippedTiles = 0;
+			boolean writeFailed = false;
+			long lastWaitLog = 0;
+			for (long tile : this.pending.snapshot()) {
+				this.map.awaitActive();
+				if (processed >= limit || this.map.stopping()) break;
+				long waitStarted = 0;
+				while (!this.map.stopping()) {
+					boolean saving = this.map.server.isCurrentlySaving();
+					double mspt = this.map.averageTickMs();
+					if (!saving && mspt <= 40.0) break;
+					long now = System.currentTimeMillis();
+					if (waitStarted == 0) waitStarted = now;
+					if (!saving && mspt <= 50.0 && now - waitStarted >= BUSY_GRACE_MS) break;
+					this.map.setStatus("waiting " + this.id + " before tile " + (processed + 1) + "/"
+						+ limit + "; tick " + String.format(Locale.ROOT, "%.1f", mspt)
+						+ " ms, saving=" + saving + ", pending=" + this.pending.size());
+					if (now - lastWaitLog >= PROGRESS_LOG_MS) {
+						Diorama.LOGGER.warn("Web map {}: paused tile rendering, tick {} ms, saving={}, pending={}, waited {} s",
+							this.id, String.format(Locale.ROOT, "%.1f", mspt), saving,
+							this.pending.size(), (now - waitStarted) / 1000);
+						lastWaitLog = now;
+					}
 					sleep(1000);
 				}
-				this.map.setStatus(String.format(Locale.ROOT, "drawing %s: tile %d of %d", this.id, drawn + empty + 1, order.size()));
-				int u = (int) (key >> 32);
-				int v = (int) key;
+				if (this.map.stopping()) break;
+				int u = (int) (tile >> 32);
+				int v = (int) tile;
+				this.map.setStatus("drawing " + this.id + " tile " + u + "," + v
+					+ ", pending=" + this.pending.size() + ", tick "
+					+ String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()) + " ms");
+				long tileStart = System.nanoTime();
 				int[] pixels;
 				try {
 					pixels = TileBaker.reference(new TileKey(TileKey.SURFACE, u, v), this.source, looks, false, null, null);
 				} catch (RuntimeException | LinkageError | StackOverflowError e) {
-					// A block a mod draws in a way the server can't: this tile stays as it was, and the rest
-					// are drawn. It's tried again when its land is saved again or on a redraw.
-					Diorama.LOGGER.warn("Couldn't draw web map tile {} {},{}", this.id, u, v, e);
+					// As before, a single modded block or model must not block the whole queue.
+					// This tile is retried when land changes or by force-render.
+					skippedTiles++;
+					this.pending.remove(tile);
+					processed++;
+					Diorama.LOGGER.warn("Couldn't bake web-map tile {} {},{}; skipping until a later update or force-render", this.id, u, v, e);
 					continue;
 				}
 				try {
 					long size = WebTiles.write(WebTiles.file(this.folder, 0, u, v), pixels);
-					bytes += size;
-					if (size > 0) {
-						drawn++;
-						this.tiles[0].add(key);
-					} else {
-						empty++;
-						this.tiles[0].remove(key);
-					}
+					if (size > 0) this.tiles[0].add(tile);
+					else this.tiles[0].remove(tile);
+					rendered.add(tile);
+					this.pending.remove(tile);
+					processed++;
 				} catch (IOException e) {
-					failed = true;
-					Diorama.LOGGER.warn("Couldn't write web map tile {} {},{}", this.id, u, v, e);
+					// Disk errors are retryable; leave the tile in the durable queue.
+					writeFailed = true;
+					Diorama.LOGGER.warn("Couldn't write web-map tile {} {},{}", this.id, u, v, e);
 				}
-				double tick = this.map.averageTickMs();
-				tickSum += tick;
-				tickMax = Math.max(tickMax, tick);
-				if ((drawn + empty) % 50 == 0) {
-					this.map.writeMapJson();
+				long took = (System.nanoTime() - tileStart) / 1_000_000;
+				if (took >= 10_000) {
+					Diorama.LOGGER.warn("Web map {}: tile {},{} took {} s, {} pending",
+						this.id, u, v, took / 1000, this.pending.size());
+				}
+				if (writeFailed) break;
+			}
+			// Save the queue before declaring a scan batch complete; a crash might cause
+			// a harmless duplicate render but cannot silently drop an unfinished tile.
+			this.queuedCount = this.pending.size();
+			if (!this.pending.save()) return false;
+			if (!rendered.isEmpty()) {
+				if (this.zoomOut(rendered) < 0) return false;
+				this.map.writeMapJson();
+				Diorama.LOGGER.info("Web map {}: published {} tiles; {} still queued, zoom levels={}",
+					this.id, processed, this.pending.size(), this.zoomLevels);
+			}
+			if (skippedTiles > 0) {
+				Diorama.LOGGER.warn("Web map {}: skipped {} unrenderable tiles while continuing with the remaining queue",
+					this.id, skippedTiles);
+			}
+			if (writeFailed) {
+				this.map.setStatus("incomplete " + this.id + ": tile write error, will retry");
+				return false;
+			}
+			return !this.map.stopping();
+		}
+
+
+		/** Queue only eligible saved chunks in the requested radius. Does not generate land. */
+		private void renderArea(TableLooks looks, RenderRequest request) {
+			Set<Long> tilesToRender = new HashSet<>();
+			Set<Long> changedTiles = new HashSet<>();
+			int radius = request.radius();
+			long radiusSquared = (long) radius * radius;
+			int minX = Math.floorDiv(request.x() - radius, 16);
+			int maxX = Math.floorDiv(request.x() + radius, 16);
+			int minZ = Math.floorDiv(request.z() - radius, 16);
+			int maxZ = Math.floorDiv(request.z() + radius, 16);
+			this.map.setStatus("scheduling " + this.id + " radius " + radius + " at "
+				+ request.x() + "," + request.z());
+			int examined = 0;
+			int eligible = 0;
+			long previousPass;
+			try {
+				previousPass = Long.parseLong(this.map.loadProgress().getProperty(this.id, "-1"));
+			} catch (NumberFormatException e) {
+				previousPass = -1;
+			}
+			for (Map.Entry<Long, int[]> region : this.save.scan().entrySet()) {
+				if (this.map.stopping()) break;
+				int regionX = (int) (region.getKey() >> 32);
+				int regionZ = (int) (long) region.getKey();
+				if (regionX * 32 > maxX || regionX * 32 + 31 < minX
+					|| regionZ * 32 > maxZ || regionZ * 32 + 31 < minZ) continue;
+				int[] times = region.getValue();
+				for (int i = 0; i < times.length; i++) {
+					if (times[i] == 0) continue;
+					int chunkX = regionX * 32 + (i & 31);
+					int chunkZ = regionZ * 32 + (i >> 5);
+					if (chunkX < minX || chunkX > maxX || chunkZ < minZ || chunkZ > maxZ) continue;
+					long dx = (long) chunkX * 16 + 8 - request.x();
+					long dz = (long) chunkZ * 16 + 8 - request.z();
+					if (dx * dx + dz * dz > radiusSquared + 256) continue;
+					examined++;
+					ServerSave.Info info = this.save.info(chunkX, chunkZ);
+					if (info == null || !info.summary().finished()
+						|| !this.map.settings.everyChunk() && info.inhabited() <= 0) continue;
+					eligible++;
+					long chunkKey = ChunkSnapshot.key(chunkX, chunkZ);
+					Drawn before = this.drawn.put(chunkKey, new Drawn(info.blocks(), info.summary().maxY(), info.summary().floorY()));
+					this.markTiles(chunkX, chunkZ, info.summary().maxY(), info.summary().floorY(), tilesToRender);
+					// Like BlueMap update: normal render still updates changed blocks,
+					// but does not unnecessarily overwrite an unchanged JPEG.
+					if (before != null && before.blocks() != info.blocks()
+							|| before == null && (previousPass < 0 || times[i] >= previousPass)) {
+						this.markTiles(chunkX, chunkZ, info.summary().maxY(), info.summary().floorY(), changedTiles);
+					}
 				}
 			}
-			long overviewBytes = this.zoomOut(dirty);
-			failed |= overviewBytes < 0;
-			overviewBytes = Math.max(0, overviewBytes);
-			long cpu = cpuStart < 0 ? -1 : threads.getCurrentThreadCpuTime() - cpuStart;
-			double seconds = (System.nanoTime() - wallStart) / 1e9;
-			Diorama.LOGGER.info(String.format(Locale.ROOT,
-				"Web map pass of %s: %d chunks saved since the last, %d with new blocks on the map; %d tiles drawn, %d empty, %d zoom levels; %.1f s (%.2f s of CPU a tile); "
-					+ "%.1f MB written (%.0f KB a tile, %.1f MB zoomed out); server tick %.1f ms average, %.1f ms worst while drawing",
-				this.id, changed, counted, drawn, empty, this.zoomLevels, seconds, cpu < 0 ? -1 : cpu / 1e9 / Math.max(1, drawn + empty),
-				(bytes + overviewBytes) / 1e6, drawn == 0 ? 0 : bytes / 1e3 / drawn, overviewBytes / 1e6, tickSum / Math.max(1, drawn + empty), tickMax));
-			this.source.clear();
-			// A chunk that couldn't be read, being written each time it was tried, say: read again.
-			failed |= this.save.failedReads() != failedReads;
-			if (failed) {
-				// Out of disk, say: the same chunks again next pass, drawn whatever their blocks.
-				this.drawn.clear();
-				return -1;
+			// Render fills missing JPEGs; force-render replaces all the affected JPEGs.
+			if (!request.force()) {
+				tilesToRender.removeAll(this.tiles[0]);
+				tilesToRender.addAll(changedTiles);
 			}
-			return started;
+			this.pending.addFirst(tilesToRender);
+			this.queuedCount = this.pending.size();
+			Diorama.LOGGER.info("Web map {}: {} radius {} at {},{} scanned {} chunks, {} eligible, queued {} tiles ({} total)",
+				this.id, request.force() ? "force-render" : "render",
+				radius, request.x(), request.z(), examined, eligible, tilesToRender.size(), this.pending.size());
+			if (this.pending.save()) this.renderQueued(looks, 16);
+			else this.map.setStatus("incomplete " + this.id + ": couldn't persist operator render queue");
+		}
+
+		/** Cancel outstanding queue and scan checkpoints but retain rendered JPEG tiles. */
+		private void cancel(Properties progress) {
+			this.pending.clear();
+			this.queuedCount = 0;
+			this.pending.save();
+			String prefix = "scan." + this.id + ".";
+			progress.remove(prefix + "cursor");
+			progress.remove(prefix + "count");
+			progress.remove(prefix + "regions");
+			progress.remove(prefix + "since");
+			progress.remove(prefix + "started");
 		}
 
 		/** The tiles a chunk's blocks can show in, or cast shadows into. */

@@ -413,7 +413,8 @@ final class MapPiece {
 	 */
 	private @Nullable MapLevel savedMap(String dimension) {
 		Maps maps = Maps.get();
-		if (maps == null) {
+		// Nor where the map is off: what was mapped there before stays out of sight.
+		if (maps == null || ServerRules.mapOff(dimension)) {
 			this.closeSaved();
 			return null;
 		}
@@ -422,7 +423,7 @@ final class MapPiece {
 			this.closeSaved();
 			this.saved = new SavedMap(folder, MapStyle.get(), MapLevel.saved(folder));
 		}
-		this.saved.map().setFogOfWar(ServerRules.fogOfWar(dimension.equals("minecraft:the_nether")));
+		this.saved.map().setFogOfWar(ServerRules.fogOfWar(dimension.equals("minecraft:the_nether"), this.saved.map().roofless()));
 		return this.saved.map();
 	}
 

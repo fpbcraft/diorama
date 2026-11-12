@@ -1,0 +1,32 @@
+name: FPBCraft Diorama NeoForge build
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+  push:
+    branches:
+      - feat/upstream-feature-sync-20261112
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  neoforge-1211:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the proposed source
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build Diorama (NeoForge 1.21.1)
+        run: ./gradlew :1.21.1-neoforge:build --stacktrace
+      - name: Compile FPBCraft companion addon
+        run: ./gradlew -p addons/fpbcraft-map-addon build --stacktrace

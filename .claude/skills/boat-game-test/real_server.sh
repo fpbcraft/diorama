@@ -11,6 +11,11 @@
 #        real_server.sh vanilla-start <node> <name>     the vanilla client joins and stays, for the console to move about
 #        real_server.sh vanilla-stop <node> <name>      it leaves
 # Prints the port on start. The world, the logs and the server's console are in ~/real-servers/<node>/.
+# REAL_SERVER_JAR: a Diorama jar to start "with" instead of the checkout's, such as an older release.
+# REAL_SERVER_DIORAMA_PROPERTIES: written to the server's config/diorama-server.properties on start.
+# REAL_SERVER_KIND=paper: a Paper server of the node's Minecraft version instead of the loader's, for
+# what a server plugin does to a Diorama client. Only "without": Paper loads no mods.
+# REAL_SERVER_PLUGINS: download addresses of plugin jars for its plugins folder, with spaces between.
 set -u
 action=$1
 node=$2
@@ -33,6 +38,7 @@ case $node in
 	*-forge) loader=forge ;;
 	*) loader=fabric ;;
 esac
+[ "${REAL_SERVER_KIND:-}" = paper ] && loader=paper
 
 # The Java its Minecraft version was made for: Forge 1.20.1 won't start on a newer one.
 java_home() {
@@ -87,6 +93,12 @@ install() {
 			curl -sSfL "https://maven.neoforged.net/releases/net/neoforged/neoforge/$v/neoforge-$v-installer.jar" -o "$root/installer.jar" || return 1
 			(cd "$root" && "$java" -jar installer.jar --install-server "$root" > install.log 2>&1) || return 1
 			;;
+		paper)
+			local build
+			# Paper's download service turns away clients that don't name themselves.
+			build=$(curl -sSfL -A 'game-test-server-install' "https://fill.papermc.io/v3/projects/paper/versions/$mc/builds/latest" 				| python3 -c 'import json, sys; print(json.load(sys.stdin)["downloads"]["server:default"]["url"])') || return 1
+			curl -sSfL -A 'game-test-server-install' "$build" -o "$root/server.jar" || return 1
+			;;
 		forge)
 			local v="$mc-$(prop forge_version)"
 			# Forge's maven refuses clients that don't look like a browser or Gradle.
@@ -112,14 +124,30 @@ start() {
 	if [ "$loader" = fabric ]; then
 		cp "$root/libs/fabric-api.jar" "$root/mods/"
 	fi
+	if [ "$loader" = paper ]; then
+		[ "$with" = without ] || { echo "a Paper server loads no mods: start it without" >&2; exit 1; }
+		# Emptied with its plugins' own folders, so each run starts from the plugins' defaults.
+		rm -rf "$root/plugins"
+		mkdir -p "$root/plugins" "$root/plugin-jars"
+		local address
+		for address in ${REAL_SERVER_PLUGINS:-}; do
+			local file="$root/plugin-jars/$(basename "$address")"
+			[ -s "$file" ] || curl -sSfL -A 'game-test-server-install' "$address" -o "$file" || { rm -f "$file"; echo "downloading $address failed" >&2; exit 1; }
+			cp "$file" "$root/plugins/"
+		done
+	fi
 	if [ "$with" = with ]; then
-		local jar
+		local jar=${REAL_SERVER_JAR:-}
 		# The only one: sandbox.sh clears the folder before it builds.
-		jar=$(ls "$repo/versions/$node/build/libs/"diorama-*.jar 2>/dev/null | grep -v -e '-sources' -e '-dev' -e '-gametest' -e '-gameshim' | head -1)
-		[ -n "$jar" ] || { echo "no release jar in versions/$node/build/libs: build it with :$node:assemble" >&2; exit 1; }
+		[ -n "$jar" ] || jar=$(ls "$repo/versions/$node/build/libs/"diorama-*.jar 2>/dev/null | grep -v -e '-sources' -e '-dev' -e '-gametest' -e '-gameshim' | head -1)
+		[ -n "$jar" ] && [ -f "$jar" ] || { echo "no release jar in versions/$node/build/libs (or REAL_SERVER_JAR): build it with :$node:assemble" >&2; exit 1; }
 		cp "$jar" "$root/mods/"
 	fi
 	echo "eula=true" > "$root/eula.txt"
+	if [ -n "${REAL_SERVER_DIORAMA_PROPERTIES:-}" ]; then
+		mkdir -p "$root/config"
+		printf '%b\n' "$REAL_SERVER_DIORAMA_PROPERTIES" > "$root/config/diorama-server.properties"
+	fi
 	# Offline, so the test client's made-up name gets in. Bound to this machine only. No watchdog:
 	# on a VM rendering the client in software the server can stall past its limit. A fixed seed,
 	# so runs see the same land.
@@ -146,7 +174,7 @@ start() {
 	(
 		cd "$root" || exit 1
 		case $loader in
-			fabric) exec "$java" -Xmx1536M -jar server.jar nogui ;;
+			fabric | paper) exec "$java" -Xmx1536M -jar server.jar nogui ;;
 			neoforge) exec "$java" -Xmx1536M @libraries/net/neoforged/neoforge/$(prop neoforge_version)/unix_args.txt nogui ;;
 			forge) exec "$java" -Xmx1536M @libraries/net/minecraftforge/forge/$mc-$(prop forge_version)/unix_args.txt nogui ;;
 		esac

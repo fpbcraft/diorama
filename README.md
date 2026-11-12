@@ -34,6 +34,8 @@ Diorama runs on Fabric for Minecraft 1.20.1, 1.21 to 1.21.11 and 26.1 to 26.3, a
 
 Players don't need it on the server. A server can have it too, to draw a map of its world anyone can open in a browser: see [The web map](docs/web-map.md).
 
+Your own map can show in a browser too, on a second monitor, a tablet or a phone, in singleplayer as well: see [Your map on a second screen](docs/second-screen.md).
+
 ## Keys
 
 | Key | What it does |
@@ -75,6 +77,7 @@ Servers can limit Diorama with the same chat codes Xaero's Minimap uses. "Fair p
 - **Waystones.** Waystones you've found show on the map in a folder of their own.
 - **FTB Chunks.** Claimed land shows on the map and minimap in its team's colour, with a stronger edge where the owner changes. Hover over it to see who owns it. Where the claims show is a setting under Overlays.
 - **Create copycats** (and Copycats+) show on the map as the block they copy.
+- **Create and Create Aeronautics.** Trains, contraptions and Aeronautics ships show on the map and minimap as their own blocks, where they are now, moving and turning as they do.
 
 ## Help and contributing
 
