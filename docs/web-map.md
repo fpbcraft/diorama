@@ -77,7 +77,7 @@ Use `diorama-web status` to capture the current stage, then look for `Web map` i
 
 Diorama scans saved world regions in batches of eight, queues affected tiles durably, and draws/publishes JPEGs **while discovery is still underway**. An initial large-region scan no longer blocks the first tile. A low-priority background worker handles all scan/render work without world generation or region IO on the Minecraft server command thread.
 
-On restart, the worker restores pending tile IDs from each dimension's **pending-tiles.txt** and its durable region-scan cursor from **progress.properties**. Queue data is saved before a scan checkpoint advances, so a crash can cause repeated work but should not lose queued tiles. If the region-file count changes, the scanner restarts conservatively while retaining generated JPEGs.
+On restart, the worker restores pending tile IDs from each dimension's **pending-tiles.txt** and its durable region-scan cursor from **progress.properties**. Queue data is saved before a scan checkpoint advances, so a crash can cause repeated work but should not lose queued tiles. If the region-file set changes (validated using a stable fingerprint of region coordinates), the scanner restarts conservatively while retaining generated JPEGs.
 
 ### Commands
 
