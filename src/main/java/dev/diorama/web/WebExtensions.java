@@ -34,7 +34,7 @@ public final class WebExtensions {
 
 	private record Assets(String id, String urlPrefix, Class<?> owner, String resourcePrefix,
 		Set<String> files, List<String> scripts, List<String> styles) {}
-	private record PublicFiles(String id, String urlPrefix, Supplier<Path> root) {}
+	private record PublicFiles(String id, String urlPrefix, Supplier<Path> root, List<String> allowed) {}
 	private record LocalApi(String id, String urlPrefix, int port) {}
 
 	private static final ConcurrentHashMap<String, Assets> ASSETS = new ConcurrentHashMap<>();
@@ -71,11 +71,21 @@ public final class WebExtensions {
 	}
 
 	/** A mounted directory is exclusively a caller-specified public export, never a parent folder. */
+	/** An empty allowlist serves the entire explicitly public root; nonempty values restrict it. */
 	public static void registerPublicFiles(String id, String urlPrefix, Supplier<Path> root) {
+		registerPublicFiles(id, urlPrefix, root, List.of());
+	}
+
+	/** Entries ending in / allow a public subtree; other entries allow one exact file. */
+	public static void registerPublicFiles(String id, String urlPrefix, Supplier<Path> root, List<String> allowed) {
 		checkId(id);
 		checkPrefix(urlPrefix);
 		if (root == null) throw new IllegalArgumentException("Public root supplier is required");
-		PUBLIC_FILES.put(id + "|" + urlPrefix, new PublicFiles(id, urlPrefix, root));
+		for (String item : allowed) {
+			if (item.endsWith("/")) checkRelative(item.substring(0, item.length() - 1));
+			else checkRelative(item);
+		}
+		PUBLIC_FILES.put(id + "|" + urlPrefix, new PublicFiles(id, urlPrefix, root, List.copyOf(allowed)));
 	}
 
 	/**
@@ -180,6 +190,12 @@ public final class WebExtensions {
 		try {
 			checkRelative(relative);
 		} catch (IllegalArgumentException e) {
+			send(exchange, 404, "text/plain", "no-store", null);
+			return;
+		}
+		boolean listed = mount.allowed.isEmpty() || mount.allowed.stream()
+			.anyMatch(rule -> rule.endsWith("/") ? relative.startsWith(rule) : relative.equals(rule));
+		if (!listed) {
 			send(exchange, 404, "text/plain", "no-store", null);
 			return;
 		}
