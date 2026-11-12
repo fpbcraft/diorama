@@ -1,7 +1,8 @@
 package dev.diorama;
 
 import dev.diorama.compat.FtbChunks;
-import dev.diorama.compat.OpacClaims;
+import dev.diorama.compat.MineColonies;
+import dev.diorama.compat.OpenPartiesAndClaims;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -9,23 +10,32 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Land claims from FTB Chunks, for the maps to draw. {@link dev.diorama.compat.FtbChunks} hands
- * over each chunk's team as FTB Chunks applies the server's updates, in every dimension, from the
- * full list sent on joining onwards. Once a tick, changes in the player's dimension make a new
- * {@link Snapshot}, which any thread can read. Everything else here is client thread only.
+ * Land claims from FTB Chunks, Open Parties and Claims or MineColonies, for the maps to draw.
+ * {@link FtbChunks} and {@link OpenPartiesAndClaims} hand over each chunk's owner as the claims mod
+ * takes in the server's updates, in every dimension, from the full list sent on joining onwards;
+ * {@link MineColonies} hands over the land of the colonies the server has sent. Once a tick,
+ * changes in the player's dimension make a new {@link Snapshot}, which any thread can read.
+ * Everything else here is client thread only.
  */
 public final class Claims {
-	/** Who owns a chunk: a team, with its colour (RGB) and name, and whether the chunk is force loaded. */
-	public record Claim(UUID team, int rgb, String name, boolean forceLoaded) {
+	/**
+	 * Who owns a chunk, with their colour (RGB) and name, and whether the chunk is force loaded.
+	 * {@code titled} means the name is the claim's whole title as its mod words it, such as Open
+	 * Parties and Claims' "Base - Alex's Claim (Forceloadable)", not an owner to name.
+	 */
+	public record Claim(Owner owner, int rgb, String name, boolean forceLoaded, boolean titled) {
+		/** Compatibility for FPBCraft's interactive OPAC helper; native OPAC supplies map data. */
+		public Claim(java.util.UUID legacyOwner, int rgb, String name, boolean forceLoaded) {
+			this(new LegacyOpacOwner(legacyOwner), rgb, name, forceLoaded, false);
+		}
 		public Claim asForceLoaded() {
-			return new Claim(this.team, this.rgb, this.name, true);
+			return new Claim(this.owner, this.rgb, this.name, true, this.titled);
 		}
 
 		Claim as(Claim team) {
@@ -33,26 +43,41 @@ public final class Claims {
 		}
 	}
 
-	/** One of FTB Chunks' regions, 32 by 32 chunks. */
+	/**
+	 * Whoever owns claimed land, as their claims mod knows them: an FTB team, one of an Open
+	 * Parties and Claims player's claims, or a MineColonies colony. Equal owners own the same claim.
+	 */
+	public interface Owner {
+		/**
+		 * The owner's claim as it stands now, looked up in their claims mod: empty if they no
+		 * longer exist, null if that can't be told now. Client thread.
+		 */
+		@Nullable Optional<Claim> look();
+	}
+
+	/** Compatibility owner for FPBCraft's action-only OPAC bridge. */
+	private record LegacyOpacOwner(java.util.UUID id) implements Owner {
+		@Override public Optional<Claim> look() { return Optional.empty(); }
+	}
+
+	/** One of the claims mods' regions, 32 by 32 chunks. */
 	private record Region(int x, int z) {
 	}
 
 	/** Chunks in a region, kept by {@link #index}. */
 	public static final int REGION_CHUNKS = 32 * 32;
-	/** Teams' colours and names are looked up again this often, in ticks, as changing them sends no claim update. */
+	/** Owners' colours and names are looked up again this often, in ticks, as changing them sends no claim update. */
 	private static final int TEAM_CHECK_TICKS = 40;
 
 	private static final Snapshot NONE = new Snapshot(null, Map.of());
 	private static volatile Snapshot current = NONE;
 	/** Every claim known, by dimension, then region; each region's chunks by {@link #index}. Never handed out. */
 	private static final Map<ResourceKey<Level>, Map<Region, Claim[]>> known = new HashMap<>();
-	/** Each team's colour and name as last read. */
-	private static final Map<UUID, Claim> teams = new HashMap<>();
+	/** Each owner's colour and name as last read. */
+	private static final Map<Owner, Claim> owners = new HashMap<>();
 	/** Regions changed since the last snapshot, by dimension. */
 	private static final Map<ResourceKey<Level>, Set<Region>> changed = new HashMap<>();
 	private static int ticks;
-	/** Only one claims provider drives the shared renderer at a time. OPAC wins when the server has it. */
-	private static boolean usingOpac;
 	/** Time spent on claims this tick, and the most in any tick since {@link #resetSlowestTick}. For tests. */
 	private static long tickNanos;
 	private static int tickUpdates;
@@ -70,7 +95,8 @@ public final class Claims {
 
 	/** Whether there's anything to read claims from, so settings about them are worth showing. */
 	public static boolean supported() {
-		return FtbChunks.available() || OpacClaims.installedOnClient();
+		return FtbChunks.available() || OpenPartiesAndClaims.available() || MineColonies.available()
+			|| dev.diorama.compat.OpacClaims.installedOnClient();
 	}
 
 	/** Where a chunk's claim is kept in its region's array. */
@@ -78,45 +104,21 @@ public final class Claims {
 		return (chunkZ & 31) << 5 | chunkX & 31;
 	}
 
-	/** No one's: the team the server sends for an unclaimed chunk, or one the player may not see. */
-	private static final UUID NO_TEAM = new UUID(0, 0);
-
 	/**
-	 * A chunk's team as FTB Chunks has it now, and whether it's force loaded. Like FTB Chunks, a
-	 * team FTB Teams doesn't know owns nothing.
+	 * A chunk's owner as its claims mod has it now, null for no one, and whether it's force
+	 * loaded. Like FTB Chunks, an owner that can't be looked up owns nothing. {@code source} is the
+	 * claims mod's kind of owner: a mod's "no one" leaves another mod's claim alone, in a game with both.
 	 */
-	public static void updated(ResourceKey<Level> dimension, int chunkX, int chunkZ, UUID team, boolean forceLoaded) {
-		if (usingOpac) {
-			return;
-		}
-		Claim plain = team == null || team.equals(NO_TEAM) ? null : teams.get(team);
-		if (plain == null && team != null && !team.equals(NO_TEAM)) {
-			Optional<Claim> found = FtbChunks.team(team);
+	public static void updated(ResourceKey<Level> dimension, int chunkX, int chunkZ, Class<? extends Owner> source, @Nullable Owner owner, boolean forceLoaded) {
+		Claim plain = owner == null ? null : owners.get(owner);
+		if (plain == null && owner != null) {
+			Optional<Claim> found = owner.look();
 			if (found != null && found.isPresent()) {
 				plain = found.get();
-				teams.put(team, plain);
+				owners.put(owner, plain);
 			}
 		}
 		Claim claim = plain == null ? null : forceLoaded ? plain.asForceLoaded() : plain;
-		put(dimension, chunkX, chunkZ, claim);
-	}
-
-	/** OPAC's already resolved owner, colour, name and force-loading, from its client API. */
-	public static void updatedOpac(ResourceKey<Level> dimension, int chunkX, int chunkZ, @Nullable Claim claim) {
-		if (usingOpac) {
-			put(dimension, chunkX, chunkZ, claim);
-		}
-	}
-
-	/** Clears previous claims before a fresh OPAC region sync or a dimension change. */
-	public static void resetOpac() {
-		known.clear();
-		teams.clear();
-		changed.clear();
-		current = NONE;
-	}
-
-	private static void put(ResourceKey<Level> dimension, int chunkX, int chunkZ, @Nullable Claim claim) {
 		Region region = new Region(chunkX >> 5, chunkZ >> 5);
 		Map<Region, Claim[]> regions = known.computeIfAbsent(dimension, d -> new HashMap<>());
 		Claim[] chunks = regions.get(region);
@@ -128,10 +130,29 @@ public final class Claims {
 			regions.put(region, chunks);
 		}
 		int i = index(chunkX, chunkZ);
+		if (claim == null && chunks[i] != null && chunks[i].owner().getClass() != source) {
+			return;
+		}
 		if (!Objects.equals(chunks[i], claim)) {
 			chunks[i] = claim;
 			changed.computeIfAbsent(dimension, d -> new HashSet<>()).add(region);
 		}
+	}
+
+	/** Deprecated compatibility methods: FPBCraft's older OPAC bridge handles actions only;
+	 * the native OpenPartiesAndClaims provider owns the rendered claim state. */
+	@Deprecated
+	public static void updatedOpac(ResourceKey<Level> dimension, int chunkX, int chunkZ, @Nullable Claim claim) { }
+
+	@Deprecated
+	public static void resetOpac() { }
+
+	/** Whose a chunk is as last handed over, by any claims mod; null for no one's. Client thread. */
+	public static @Nullable Owner owner(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
+		Map<Region, Claim[]> regions = known.get(dimension);
+		Claim[] chunks = regions == null ? null : regions.get(new Region(chunkX >> 5, chunkZ >> 5));
+		Claim claim = chunks == null ? null : chunks[index(chunkX, chunkZ)];
+		return claim == null ? null : claim.owner();
 	}
 
 	/** Time spent taking in an update, counted toward this tick's. */
@@ -143,20 +164,13 @@ public final class Claims {
 	/** Called every client tick: makes a new snapshot when the claims in the player's dimension changed. */
 	public static void tick(Minecraft mc) {
 		long start = System.nanoTime();
-		boolean opac = mc.level != null && OpacClaims.available(mc);
-		if (opac != usingOpac) {
-			resetOpac();
-			usingOpac = opac;
-			if (opac) {
-				OpacClaims.reset();
-			}
+		OpenPartiesAndClaims.tick();
+		dev.diorama.compat.OpacClaims.tick(mc);
+		MineColonies.tick(mc);
+		if (++ticks % TEAM_CHECK_TICKS == 0) {
+			checkOwners();
 		}
-		if (opac) {
-			OpacClaims.tick(mc);
-		} else if (++ticks % TEAM_CHECK_TICKS == 0) {
-			checkTeams();
-		}
-		boolean shown = mc.level != null && Settings.get().claims != Settings.ClaimsShown.OFF && (opac || FtbChunks.available());
+		boolean shown = mc.level != null && Settings.get().claims != Settings.ClaimsShown.OFF && supported();
 		ResourceKey<Level> dimension = shown ? mc.level.dimension() : null;
 		Snapshot snapshot = current;
 		if (dimension == null) {
@@ -201,13 +215,13 @@ public final class Claims {
 	}
 
 	/**
-	 * Teams whose colour or name changed get their claims redrawn, and teams FTB Teams says no
-	 * longer exist lose theirs: deleting a server team sends no update for its chunks.
+	 * Owners whose colour or name changed get their claims redrawn, and owners their mod says no
+	 * longer exist lose theirs: deleting an FTB server team sends no update for its chunks.
 	 */
-	private static void checkTeams() {
-		Map<UUID, Claim> renamed = new HashMap<>();
-		for (Map.Entry<UUID, Claim> entry : teams.entrySet()) {
-			Optional<Claim> now = FtbChunks.team(entry.getKey());
+	private static void checkOwners() {
+		Map<Owner, Claim> renamed = new HashMap<>();
+		for (Map.Entry<Owner, Claim> entry : owners.entrySet()) {
+			Optional<Claim> now = entry.getKey().look();
 			if (now != null && !now.equals(Optional.of(entry.getValue()))) {
 				renamed.put(entry.getKey(), now.orElse(null));
 			}
@@ -215,19 +229,19 @@ public final class Claims {
 		if (renamed.isEmpty()) {
 			return;
 		}
-		for (Map.Entry<UUID, Claim> entry : renamed.entrySet()) {
+		for (Map.Entry<Owner, Claim> entry : renamed.entrySet()) {
 			if (entry.getValue() == null) {
-				teams.remove(entry.getKey());
+				owners.remove(entry.getKey());
 			} else {
-				teams.put(entry.getKey(), entry.getValue());
+				owners.put(entry.getKey(), entry.getValue());
 			}
 		}
 		for (Map.Entry<ResourceKey<Level>, Map<Region, Claim[]>> dimension : known.entrySet()) {
 			for (Map.Entry<Region, Claim[]> region : dimension.getValue().entrySet()) {
 				Claim[] chunks = region.getValue();
 				for (int i = 0; i < chunks.length; i++) {
-					if (chunks[i] != null && renamed.containsKey(chunks[i].team())) {
-						Claim team = renamed.get(chunks[i].team());
+					if (chunks[i] != null && renamed.containsKey(chunks[i].owner())) {
+						Claim team = renamed.get(chunks[i].owner());
 						chunks[i] = team == null ? null : chunks[i].as(team);
 						changed.computeIfAbsent(dimension.getKey(), d -> new HashSet<>()).add(region.getKey());
 					}
@@ -255,14 +269,32 @@ public final class Claims {
 		return true;
 	}
 
+	/** Forgets one claims mod's claims in a dimension, {@code source} its kind of owner, for it to hand them all over again. */
+	public static void forget(ResourceKey<Level> dimension, Class<? extends Owner> source) {
+		Map<Region, Claim[]> regions = known.get(dimension);
+		if (regions == null) {
+			return;
+		}
+		for (Map.Entry<Region, Claim[]> region : regions.entrySet()) {
+			Claim[] chunks = region.getValue();
+			for (int i = 0; i < chunks.length; i++) {
+				if (chunks[i] != null && chunks[i].owner().getClass() == source) {
+					chunks[i] = null;
+					changed.computeIfAbsent(dimension, d -> new HashSet<>()).add(region.getKey());
+				}
+			}
+		}
+	}
+
 	/** Forgets every claim, on leaving a world or moving to another server: the next one sends its own. */
 	public static void clear() {
-		usingOpac = false;
-		OpacClaims.reset();
 		known.clear();
-		teams.clear();
+		owners.clear();
 		changed.clear();
 		current = NONE;
+		OpenPartiesAndClaims.cleared();
+		dev.diorama.compat.OpacClaims.reset();
+		MineColonies.cleared();
 	}
 
 	/** For tests: the most time spent on claims in one tick since the last call, in nanoseconds, and starts again. */
@@ -280,7 +312,7 @@ public final class Claims {
 	/** The claims in one dimension at one moment. Never modified. */
 	public static final class Snapshot {
 		private final @Nullable ResourceKey<Level> dimension;
-		/** By FTB Chunks' region, each region's chunks by {@link #index}; null for none. */
+		/** By region, each region's chunks by {@link #index}; null for none. */
 		private final Map<Region, Claim[]> regions;
 
 		Snapshot(@Nullable ResourceKey<Level> dimension, Map<Region, Claim[]> regions) {
