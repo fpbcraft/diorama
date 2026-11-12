@@ -342,6 +342,10 @@ public final class WebMap {
 				}
 				this.writeMapJson();
 				if (!complete && !this.stopping) {
+					if (this.cancelRequested.get()) {
+						this.status = "cancelling pending web-map tasks";
+						continue;
+					}
 					String cause = interruptedAt == null ? "an incomplete dimension pass" : interruptedAt;
 					if (this.redrawAll.get() || !this.requested.isEmpty()) {
 						this.status = "restarting incomplete pass: another redraw was requested";
@@ -693,6 +697,12 @@ public final class WebMap {
 			}).thenComparingLong(Map.Entry::getKey));
 			this.source.clear();
 			int cursor = 0;
+			long previousPass;
+			try {
+				previousPass = Long.parseLong(progress.getProperty(this.id, "-1"));
+			} catch (NumberFormatException e) {
+				previousPass = -1;
+			}
 			try {
 				int savedCount = Integer.parseInt(progress.getProperty(prefix + "count", "-1"));
 				long savedLast = Long.parseLong(progress.getProperty(prefix + "since", "0"));
@@ -763,7 +773,8 @@ public final class WebMap {
 					int floor = before != null ? Math.min(before.floor(), summary.floorY())
 						: last >= 0 ? this.level.getMinY() : summary.floorY();
 					this.markTiles(chunkX, chunkZ, top, floor, dirty);
-					if (last < 0 && before != null && before.blocks() != info.blocks()) {
+					if (last < 0 && (before != null && before.blocks() != info.blocks()
+							|| before == null && previousPass >= 0 && times[i] >= previousPass)) {
 						this.markTiles(chunkX, chunkZ, top, floor, changedTiles);
 					}
 				}
@@ -917,6 +928,12 @@ public final class WebMap {
 				+ request.x() + "," + request.z());
 			int examined = 0;
 			int eligible = 0;
+			long previousPass;
+			try {
+				previousPass = Long.parseLong(this.map.loadProgress().getProperty(this.id, "-1"));
+			} catch (NumberFormatException e) {
+				previousPass = -1;
+			}
 			for (Map.Entry<Long, int[]> region : this.save.scan().entrySet()) {
 				if (this.map.stopping()) break;
 				int regionX = (int) (region.getKey() >> 32);
@@ -942,7 +959,8 @@ public final class WebMap {
 					this.markTiles(chunkX, chunkZ, info.summary().maxY(), info.summary().floorY(), tilesToRender);
 					// Like BlueMap update: normal render still updates changed blocks,
 					// but does not unnecessarily overwrite an unchanged JPEG.
-					if (before != null && before.blocks() != info.blocks()) {
+					if (before != null && before.blocks() != info.blocks()
+							|| before == null && (previousPass < 0 || times[i] >= previousPass)) {
 						this.markTiles(chunkX, chunkZ, info.summary().maxY(), info.summary().floorY(), changedTiles);
 					}
 				}
