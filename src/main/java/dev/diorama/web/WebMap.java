@@ -218,6 +218,10 @@ public final class WebMap {
 			} else {
 				progress.setProperty("share-land", land);
 			}
+			// A stale progress file may claim a dimension was rendered even if the
+			// base tile folder is empty (e.g. an older interrupted first pass).
+			// Recover once per dimension on startup without deleting any stored data.
+			Set<String> checkedEmptyProgress = new HashSet<>();
 			while (!this.stopping) {
 				boolean all = this.redrawAll.getAndSet(false) || this.redrawOwed;
 				this.redrawOwed = false;
@@ -231,6 +235,10 @@ public final class WebMap {
 					String id = level.dimension().identifier().toString();
 					Dimension dimension = this.dimensions.computeIfAbsent(id, key -> new Dimension(this, level, key));
 					long last = all ? -1 : Long.parseLong(progress.getProperty(id, "-1"));
+					if (last >= 0 && dimension.tiles[0].isEmpty() && checkedEmptyProgress.add(id)) {
+						Diorama.LOGGER.warn("Web map {}: progress file says rendering completed, but no base JPEG tiles exist; rescanning saved chunks from scratch", id);
+						last = -1;
+					}
 					long started = dimension.pass(looks, last);
 					if (started >= 0) {
 						progress.setProperty(id, Long.toString(started));
@@ -590,8 +598,9 @@ public final class WebMap {
 			int scannedRegions = 0;
 			this.map.setStatus("scanning saved chunks in " + this.id + ": 0/" + regions.size() + " regions"
 				+ ", tick " + String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()) + " ms");
-			Diorama.LOGGER.info("Web map {}: starting {} pass; {} region files, average tick {:.1f} ms, saving={}",
-				this.id, last < 0 ? "full" : "incremental", regions.size(), this.map.averageTickMs(),
+			Diorama.LOGGER.info("Web map {}: starting {} pass; {} region files, average tick {} ms, saving={}",
+				this.id, last < 0 ? "full" : "incremental", regions.size(),
+				String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()),
 				this.map.server.isCurrentlySaving());
 			this.source.clear();
 			Set<Long> dirty = new HashSet<>();
@@ -617,7 +626,8 @@ public final class WebMap {
 				}
 				if (this.map.shuttingDown()) {
 					// Reading every chunk of a big world takes a while: not past the server's shutdown.
-					return -1;
+					this.map.setStatus("interrupted scanning " + this.id + " after " + scannedRegions + " regions: server shutting down");
+					return PASS_INCOMPLETE;
 				}
 				int regionX = (int) (region.getKey() >> 32);
 				int regionZ = (int) (long) region.getKey();
@@ -693,7 +703,8 @@ public final class WebMap {
 			long lastBusyTile = 0;
 			double tickSum = 0;
 			double tickMax = 0;
-			Diorama.LOGGER.info("Web map {}: drawing {} queued tiles, nearest spawn first", this.id, order.size());
+			Diorama.LOGGER.info("Web map {}: drawing {} queued tiles, nearest spawn first; average tick {} ms, saving={}", this.id, order.size(),
+				String.format(Locale.ROOT, "%.1f", this.map.averageTickMs()), this.map.server.isCurrentlySaving());
 			for (long key : order) {
 				if (this.map.stopping()) {
 					String reason = this.map.shuttingDown() ? "server shutting down" : "new redraw requested";
