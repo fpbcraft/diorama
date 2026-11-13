@@ -49,6 +49,9 @@ export class FogCoverage {
       const finish=(state,picture=image)=>{
         if(this.disposed||entry.abort.signal.aborted)return;
         this.active--;entry.state=state;entry.image=picture;entry.retryAt=Date.now()+10000;
+        if(state==='ready')for(const [key,old]of this.cache){
+          if(key!==source.mask&&old.state==='ready'&&old.source.dimension===source.dimension&&old.source.zoom===source.zoom&&old.source.key===source.key&&old.source.units===source.units){if(old.source.version>source.version){this.cancel(entry);this.cache.delete(source.mask);break;}this.cancel(old);this.cache.delete(key);}
+        }
         if(state==='missing')entry.retryTimer=setTimeout(()=>{if(!this.disposed&&this.wanted.has(source.mask))this.changed();},10010);
         this.changed();
       };

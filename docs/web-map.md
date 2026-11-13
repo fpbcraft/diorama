@@ -168,3 +168,11 @@ Serve these assets in front of the same public map-data backend. Keep live JSON 
 Straight and curved Create graph edges use the same track sampler and 4-pixels-per-block rail, sleeper and girder rasterizer as the in-game map. Gauges, monorails, phantom-track omission and optional curve girders follow the graph's material and geometry. The web worker resolves palette colours through the server's appearance table and composites the rails into normal terrain JPEGs, so browsers need no additional track renderer or requests.
 
 The server snapshots the graph every 30 seconds while the map is active and the server is not busy or saving. Only changed track tiles that the web map already renders are queued for refresh. This does not load chunks or reveal underground tracks: missing terrain depth hides the rail layer, and foreground terrain occludes it. Existing tiles containing tracks refresh after the first graph snapshot; no tile deletion is required.
+
+## Visibility and mobile controls
+
+Map visibility holds the cloud, vehicle pin, unnamed vehicle, shared waypoint, queue, claim, loaded-chunk, entity-density and activity-heatmap switches when Player History is installed. Choices are saved in the browser and restored on refresh. Unnamed vehicle pins are off by default. Named pins remain visible until the craft is large enough to read without a pin.
+
+Mobile uses one dimension selector and a compact season/date/time display in the top row, with player icons below. Claim editing in-game highlights the hovered chunk and snaps the selection preview to complete chunks; the existing claim/unclaim requests and range checks are unchanged. The companion addon's ship/train pins honor the in-game **Include unnamed vehicles** setting.
+
+Chunk and heatmap overlays use each dimension's published generator reference height, so flat worlds at negative Y no longer project at Y=64. This is a reference plane, not per-pixel terrain following on hills or inside caves. Older publishers without the field retain the original Y=64 fallback.

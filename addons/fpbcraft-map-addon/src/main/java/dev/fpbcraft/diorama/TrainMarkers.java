@@ -82,6 +82,7 @@ final class TrainMarkers implements MapAnnotations.Source {
                 if (!(position instanceof Vec3 vec)) continue;
                 Object nameComponent = train.getClass().getField("name").get(train);
                 String name = ReflectSupport.text(nameComponent);
+                if(name.isBlank()||name.equalsIgnoreCase("unnamed train")){if(!Settings.get().showAllVehicleMarkers)continue;name="Unnamed train";}
                 Object navigation = train.getClass().getField("navigation").get(train);
                 Object destination = navigation == null ? null : navigation.getClass().getField("destination").get(navigation);
                 if (destination != null) {

@@ -162,6 +162,7 @@ public final class SettingsScreen extends Screen {
 		overlays.toggle("show_railway_trains", () -> s.showRailwayTrains, v -> s.showRailwayTrains = v);
 		overlays.toggle("show_sable_ship_shapes", () -> s.showSableShipShapes, v -> s.showSableShipShapes = v);
 		overlays.toggle("show_sable_ship_markers", () -> s.showSableShipMarkers, v -> s.showSableShipMarkers = v);
+		overlays.toggle("show_all_vehicle_markers", () -> s.showAllVehicleMarkers, v -> s.showAllVehicleMarkers = v);
 
 		SettingsTab waypoints = new SettingsTab("diorama.settings.waypoints");
 		waypoints.toggle("waypoints_map", () -> s.waypointsOnMap, v -> s.waypointsOnMap = v);

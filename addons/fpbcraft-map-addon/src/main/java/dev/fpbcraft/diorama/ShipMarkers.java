@@ -50,9 +50,8 @@ final class ShipMarkers implements MapAnnotations.Source {
             List<Waypoint> next = new ArrayList<>();
             for (Object level : levels) {
                 Object nameValue = ReflectSupport.call(level, "getName");
-                if (!(nameValue instanceof String name) || name.isBlank()) {
-                    continue;
-                }
+                String name=nameValue instanceof String shipName?shipName:"";
+                if(name.isBlank()){if(!Settings.get().showAllVehicleMarkers)continue;name="Unnamed ship";}
                 Object idValue = ReflectSupport.call(level, "getUniqueId");
                 if (!(idValue instanceof UUID id)) {
                     continue;

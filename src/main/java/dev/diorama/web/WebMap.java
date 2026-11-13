@@ -1289,7 +1289,8 @@ public final class WebMap {
 			json.append("],");
 			json.append("\"id\":\"").append(this.id).append("\",\"folder\":\"").append(this.folder.getFileName())
 				.append("\",\"fog\":\"").append(this.level.dimensionType().hasCeiling() ? "none" : "fog")
-				.append("\",\"zoomLevels\":").append(Math.max(1, this.zoomLevels)).append(",\"versions\":true,\"tiles\":[");
+				.append("\",\"referenceY\":").append(this.level.getChunkSource().getGenerator().getSpawnHeight(this.level))
+				.append(",\"zoomLevels\":").append(Math.max(1, this.zoomLevels)).append(",\"versions\":true,\"tiles\":[");
 			for (int z = 0; z < Math.max(1, this.zoomLevels); z++) {
 				if (z > 0) {
 					json.append(',');
