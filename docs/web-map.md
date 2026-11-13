@@ -31,7 +31,8 @@ All in `config/diorama-server.properties`:
 | `web-map-port` | The port of Diorama's own small web server. `0` turns it off, for when you serve the files yourself. Default 8100. |
 | `web-map-address` | The address it listens on. Empty for every address; `127.0.0.1` to only reach it through a web server of your own on the same machine. |
 | `web-map-folder` | Where the map's files go. Empty: `diorama-web` in the world folder. |
-| `share-land` | Which land the map shows, the same as the shared map: `visited` (land players have spent time near, as the game counts it in every chunk) or `generated` (every finished chunk, for worlds pre-generated with Chunky). |
+| `web-map-land` | Web-only land scope: `visited`, `generated` (every finished saved chunk), or `inherit` (default, follows `share-land`). |
+| `share-land` | In-game shared-map scope. Also supplies the web scope when `web-map-land=inherit`. |
 
 ## Serving it yourself
 
@@ -50,7 +51,9 @@ For operators:
 - `/diorama-web status` says what it's doing.
 - `/diorama-web redraw` draws everything again.
 
-Changing `share-land` redraws the whole map by itself the next time the server starts.
+Changing the effective `web-map-land` scope redraws the web map automatically on the next server start.
+
+To show all pregenerated land on the web while each player discovers their own in-game map, set `web-map-land=generated`, `share-map=false` and `share-land=visited`. Pregeneration only creates Minecraft chunks; Diorama still needs to render them. Existing JPEGs can remain in place. Check `/diorama-web status` for render progress and load-related pauses.
 
 Land taken out of the world stays on the web map until `/diorama-web redraw`: a dimension reset by deleting its folder, region files deleted, or chunks trimmed with a tool such as MCA Selector.
 
@@ -104,7 +107,7 @@ All commands use the **/diorama-web** prefix and require operator permission lev
 | resume / start | Resume previously paused tasks |
 | cancel | Cancel the active scan and queued tasks, pause, and keep completed JPEGs |
 
-The maximum command radius is **16,384 blocks**. Radius render commands do not generate new chunks, and force-render does not bypass Diorama's existing share-land policy. Use **share-land=generated** to include already pregenerated finished land, or **share-land=visited** to restrict it to chunks inhabited by players.
+The maximum command radius is **16,384 blocks**. Radius render commands do not generate new chunks, and force-render does not bypass Diorama's web-map-land policy. Use **web-map-land=generated** to include already pregenerated finished land, or **web-map-land=visited** to restrict it to chunks inhabited by players.
 
 ### Performance and diagnostics
 

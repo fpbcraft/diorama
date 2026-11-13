@@ -69,7 +69,11 @@ public record WebSettings(boolean enabled, int port, String address, @Nullable P
 		String address = properties.getProperty("web-map-address", "").trim();
 		String folderText = properties.getProperty("web-map-folder", "").trim();
 		Path folder = folderText.isEmpty() ? null : Path.of(folderText);
-		boolean everyChunk = properties.getProperty("share-land", "visited").trim().toLowerCase(Locale.ROOT).equals("generated");
+		String webLand = properties.getProperty("web-map-land", "inherit").trim().toLowerCase(Locale.ROOT);
+		if (!webLand.equals("inherit") && !webLand.equals("generated") && !webLand.equals("visited")) {
+			Diorama.LOGGER.warn("Invalid web-map-land {}; using inherit", webLand); webLand="inherit";
+		}
+		boolean everyChunk = (webLand.equals("inherit") ? properties.getProperty("share-land", "visited").trim() : webLand).equalsIgnoreCase("generated");
 		int updateSeconds = 30;
 		try { updateSeconds = Math.max(10, Math.min(300, Integer.parseInt(properties.getProperty("web-map-update-seconds", "30").trim()))); }
 		catch (NumberFormatException ignored) { Diorama.LOGGER.warn("Invalid web-map-update-seconds; using 30"); }
@@ -78,12 +82,13 @@ public record WebSettings(boolean enabled, int port, String address, @Nullable P
 
 	/** Each of the web map's settings: its key, what it means, its default. */
 	private static final String[][] SETTINGS = {
+		{"web-map-land", "# Land rendered for the browser: generated, visited, or inherit (share-land). Does not change in-game map sharing.\n", "inherit"},
 		{"web-map-vehicles", "# Publish Create/Sable crafts using Diorama rendering, without BlueMap.\n", "true"},
 		{"web-map-depth", "# Export per-pixel depth for hybrid 3D vehicles; adds a surface trace per changed tile.\n", "false"},
 		{"web-map-update-seconds", "# Coalesce live block edits before background tile updates; saves/MSPT safeguards still apply.\n", "30"},
 		{"web-map", """
 			# The web map: this server draws its map, in vanilla colours, for anyone to see in a browser.
-			# Off unless set to true. It covers the same land as the shared map (share-land).
+			# Off unless set to true. web-map-land selects its land independently of in-game sharing.
 			""", "false"},
 		{"web-map-port", """
 			# The port of the web map's own web server, at http://<this server>:<port>/. Set it to 0

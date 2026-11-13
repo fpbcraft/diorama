@@ -1,10 +1,23 @@
 import { revealProgress, revealFrom } from './fog-reveal.js';
+export const FOG_GUTTER = 64;
+export const fogBufferSize = (width,height,coarse=false) => {
+  const pixels=coarse?90000:180000;
+  const ratio=Math.min(.5,Math.sqrt(pixels/(width*height)),960/Math.max(width,height));
+  return {width:Math.max(1,Math.ceil(width*ratio)),height:Math.max(1,Math.ceil(height*ratio))};
+};
+export const fogViewportTransform = (before,after,pad=FOG_GUTTER) => {
+  const scale=after.scale/before.scale;
+  return {x:(before.u-after.u)*after.scale+(after.width-before.width*scale)/2+pad*(1-scale),
+    y:(before.v-after.v)*after.scale+(after.height-before.height*scale)/2+pad*(1-scale),
+    scaleX:scale*(before.width+2*pad)/(after.width+2*pad),scaleY:scale*(before.height+2*pad)/(after.height+2*pad)};
+};
 /** The game's fog.fsh, with only its host uniforms adapted for WebGL2. Half-resolution, as FogLayer. */
 export class FogGpu {
   constructor(canvas) {
     this.gl=canvas.getContext('webgl2',{alpha:true,premultipliedAlpha:false,antialias:false,powerPreference:'low-power'});
     if(!this.gl)throw Error('WebGL2 unavailable');
     this.canvas=canvas;this.ready=false;this.disposed=false;
+    Object.assign(canvas.style,{left:`-${FOG_GUTTER}px`,top:`-${FOG_GUTTER}px`,right:'auto',bottom:'auto',width:`calc(100% + ${FOG_GUTTER*2}px)`,height:`calc(100% + ${FOG_GUTTER*2}px)`,transformOrigin:'0 0'});
   }
   async load(signal) {
     const [response,noiseResponse]=await Promise.all([fetch(new URL('fog.fsh',import.meta.url),{signal}),fetch(new URL('fog-noise.png',import.meta.url),{signal})]);
@@ -32,12 +45,12 @@ export class FogGpu {
   }
   draw(state,layout,time) {
     if(!this.ready||this.disposed)return;
-    const gl=this.gl,ratio=Math.min(.5,1280/Math.max(state.width,state.height));
-    const w=Math.max(1,Math.ceil(state.width*ratio)),h=Math.max(1,Math.ceil(state.height*ratio));
+    const gl=this.gl,renderWidth=state.width+2*FOG_GUTTER,renderHeight=state.height+2*FOG_GUTTER;
+    const size=fogBufferSize(renderWidth,renderHeight,state.coarse),w=size.width,h=size.height;
     if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}
     gl.viewport(0,0,w,h);gl.useProgram(this.program);
-    const left=state.u-state.width/2/state.scale,top=state.v-state.height/2/state.scale;
-    gl.uniform4f(this.uniforms.viewUv,(left-layout.u)/layout.units,(top-layout.v)/layout.units,(left+state.width/state.scale-layout.u)/layout.units,(top+state.height/state.scale-layout.v)/layout.units);
+    const left=state.u-renderWidth/2/state.scale,top=state.v-renderHeight/2/state.scale;
+    gl.uniform4f(this.uniforms.viewUv,(left-layout.u)/layout.units,(top-layout.v)/layout.units,(left+renderWidth/state.scale-layout.u)/layout.units,(top+renderHeight/state.scale-layout.v)/layout.units);
     const period=512*2**(layout.steps+1),offset=value=>Math.floor(((value/period%1+1)%1)*8)*32;
     const alpha=(Math.round(Math.log2(layout.texel/2))*16)+(layout.steps>=8?8:0)+2+(state.smoke?1:0);
     gl.uniform4f(this.uniforms.params,offset(layout.u)/255,offset(layout.v)/255,((layout.steps%8)*16+Math.round(layout.fraction*16))/255,alpha/255);
@@ -45,6 +58,13 @@ export class FogGpu {
     this.canvas.dataset.fogRevealProgress=progress.toFixed(3);
     gl.uniform1f(this.uniforms.Reveal,progress);
     gl.uniform1f(this.uniforms.GameTime,(time%1200000)/1200000);gl.drawArrays(gl.TRIANGLES,0,3);
+    this.canvas.dataset.fogPixels=String(w*h);this.canvas.dataset.fogQuality=state.coarse?'touch':'desktop';
+    this.lastView={...state};this.canvas.style.transform='';
+  }
+  position(state) {
+    if(!this.lastView)return;
+    const t=fogViewportTransform(this.lastView,state);
+    this.canvas.style.transform=`translate(${t.x}px,${t.y}px) scale(${t.scaleX},${t.scaleY})`;
   }
   dispose(){this.disposed=true;if(this.textures)for(const texture of this.textures)this.gl.deleteTexture(texture);if(this.program)this.gl.deleteProgram(this.program);}
 }

@@ -12,11 +12,14 @@ try {
   // Stubs isolate the HTTP handler from Minecraft/logging, not its security behavior.
   await writeFile(join(temp, "dev/diorama/Diorama.java"), 'package dev.diorama; public class Diorama { public static final Log LOGGER = new Log(); public static class Log { public void warn(String text, Object... values) { System.err.println(text); } } }');
   await writeFile(join(temp, "org/jspecify/annotations/Nullable.java"), 'package org.jspecify.annotations; @java.lang.annotation.Target({java.lang.annotation.ElementType.TYPE_USE}) public @interface Nullable {}');
+  await copyFile(resolve(root, "src/main/java/dev/diorama/web/WebSettings.java"), join(source, "WebSettings.java"));
+  await copyFile(resolve(root, "tests/web/WebSettingsTest.java"), join(source, "WebSettingsTest.java"));
   await copyFile(resolve(root, "src/main/java/dev/diorama/web/WebServer.java"), join(source, "WebServer.java"));
   await copyFile(resolve(root, "src/main/java/dev/diorama/web/WebExtensions.java"), join(source, "WebExtensions.java"));
   await writeFile(join(source, "test-embedded.js"), "export const fromJar = true;\n");
   await copyFile(resolve(root, "tests/web/WebServerSecurityTest.java"), join(source, "WebServerSecurityTest.java"));
   const java = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, "bin") : "/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home/bin";
-  execFileSync(join(java, "javac"), ["-d", temp, join(temp, "dev/diorama/Diorama.java"), join(temp, "org/jspecify/annotations/Nullable.java"), join(source, "WebServer.java"), join(source, "WebExtensions.java"), join(source, "WebServerSecurityTest.java")], { stdio: "inherit" });
+  execFileSync(join(java, "javac"), ["-d", temp, join(temp, "dev/diorama/Diorama.java"), join(temp, "org/jspecify/annotations/Nullable.java"), join(source, "WebServer.java"), join(source, "WebExtensions.java"), join(source, "WebServerSecurityTest.java"),join(source,"WebSettings.java"),join(source,"WebSettingsTest.java")], { stdio: "inherit" });
+  execFileSync(join(java,"java"),["-cp",temp,"dev.diorama.web.WebSettingsTest"],{stdio:"inherit"});
   execFileSync(join(java, "java"), ["-cp", temp, "dev.diorama.web.WebServerSecurityTest"], { stdio: "inherit", timeout: 30000 });
 } finally { await rm(temp, { recursive: true, force: true }); }

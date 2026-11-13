@@ -45,6 +45,7 @@
 <div class="map-empty" id="empty"></div>
 <script type="module">
 import { WebMarkers } from "./web-markers.js";
+import { coverageSources } from "./fog-coverage.js";
 import { WebFog } from "./web-fog.js";
 import { createOverlayApi, projectWorld } from "./overlay-api.js";
 "use strict";
@@ -307,7 +308,7 @@ function paint() {
 	ctx.fillStyle = map ? map.background : "#15171c";
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
 	if (!map || !dim) {
-		fog.update({u:0,v:0,scale:1,width:w,height:h,dpr,dimension:"",coverage:false,rounded:true,smoke:false},[]);
+		fog.update({u:0,v:0,scale:1,width:w,height:h,dpr,dimension:"",enabled:false,coverage:false,rounded:true,smoke:false},[]);
 		return;
 	}
 	const z = zoomFor(view.scale);
@@ -332,8 +333,22 @@ function paint() {
 	// as a thin line between the pictures.
 	const k = view.scale * dpr;
 	const sx = m => Math.round((m - left) * k), sy = m => Math.round((m - top) * k);
+	// Reproject cached terrain from other LODs while the requested JPEGs load.
+	const cached=[];
+	for(const [key,entry]of tiles){
+		if(!key.startsWith(dim.folder+"/"))continue;
+		const parts=key.split("/"),level=Number(parts.at(-2));
+		if(level>=z&&level<=coarse)continue;
+		const [u,v]=parts.at(-1).split("_").map(Number),image=entry.state==="ready"?entry.img:entry.old;
+		if(image&&present[level]?.has(u+","+v))cached.push({level,u,v,image});
+	}
+	cached.sort((a,b)=>b.level-a.level);
+	for(const {level,u,v,image}of cached){
+		const units=tileUnits(level),x0=sx(u*units),x1=sx((u+1)*units),y0=sy(v*units),y1=sy((v+1)*units);
+		if(x1<=0||y1<=0||x0>=canvas.width||y0>=canvas.height)continue;
+		ctx.imageSmoothingEnabled=k<map.tilePixels/map.tileUnits/(1<<level);ctx.drawImage(image,x0,y0,x1-x0,y1-y0);
+	}
 	let loaded = 0, any = 0;
-	const fogSources = [];
 	for (let level = coarse; level >= z; level--) {
 		const units = tileUnits(level);
 		// Shrunk pictures averaged with the browser's best filter; stretched ones (closer in than the
@@ -347,12 +362,13 @@ function paint() {
 			if (level === z) loaded++;
 			const x0 = sx(u * units), x1 = sx((u + 1) * units), y0 = sy(v * units), y1 = sy((v + 1) * units);
 			ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
-			const ver = present[level]?.get(u + "," + v);
-			fogSources.push({u:u*units,v:v*units,units,mask:tileKey(level,u,v)+".fog.png?v="+ver});
 		}
 	}
 	fillState = { wanted: sharp.length, loaded, any };
-	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether"},fogSources);
+	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,
+    enabled:dim.fog!=="none",rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether",
+    validCoverage:source=>source.dimension!==dim.id || present[source.zoom]?.get(source.key)===source.version},
+    layout=>coverageSources(present,layout,(z,u,v,extension,version)=>tileKey(z,u,v)+extension+"?v="+version,map.tileUnits,dim.id));
 	if (player && player.dimension === dim.id) drawPlayer(sx(player.u), sy(player.v), dpr);
 }
 

@@ -51,7 +51,7 @@ export const softKnown = (known,texel) => {
   return out;
 };
 export const fogMask = (sharp,texel,rounded=true,steps=0) => {
-  const known=rounded&&texel<16?roundKnown(sharp,Math.max(1,Math.round(10/texel))):sharp;
+  const known=rounded?roundKnown(sharp,Math.max(1,Math.round(10/texel))):sharp;
   const rgba=new Uint8Array(MASK_SIZE*MASK_SIZE*4),detail=new Uint8Array(rgba.length),soft=softKnown(known,texel);
   for(let i=0;i<known.length;i++) {
     rgba[i*4]=Math.round(known[i]*255);rgba[i*4+3]=255;
