@@ -1,5 +1,6 @@
 import { revealProgress, revealFrom } from './fog-reveal.js';
 export const FOG_GUTTER = 64;
+export const cloudSpan = scale => Math.max(2048, 1200 / Math.max(scale, .0001));
 export const fogBufferSize = (width,height,coarse=false) => {
   const pixels=coarse?90000:180000;
   const ratio=Math.min(.5,Math.sqrt(pixels/(width*height)),960/Math.max(width,height));
@@ -29,7 +30,7 @@ export class FogGpu {
     const vertex=compile(gl.VERTEX_SHADER,'#version 300 es\nprecision highp float;uniform vec4 viewUv;out vec2 maskUv;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);maskUv=mix(viewUv.xy,viewUv.zw,vec2(p.x,1.0-p.y));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}');
     const fragment=compile(gl.FRAGMENT_SHADER,shader);this.program=gl.createProgram();gl.attachShader(this.program,vertex);gl.attachShader(this.program,fragment);gl.linkProgram(this.program);gl.deleteShader(vertex);gl.deleteShader(fragment);
     if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(this.program));
-    gl.useProgram(this.program);this.uniforms={};for(const name of ['viewUv','maskWorld','GameTime','Reveal'])this.uniforms[name]=gl.getUniformLocation(this.program,name);
+    gl.useProgram(this.program);this.uniforms={};for(const name of ['viewUv','maskWorld','GameTime','Reveal','CloudSpan'])this.uniforms[name]=gl.getUniformLocation(this.program,name);
     this.textures=[0,1,2,3,4].map(index=>{const texture=gl.createTexture();gl.activeTexture(gl.TEXTURE0+index);gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,index===1?gl.REPEAT:gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,index===1?gl.REPEAT:gl.CLAMP_TO_EDGE);gl.uniform1i(gl.getUniformLocation(this.program,index===3?'Previous0':index===4?'Previous2':'Sampler'+index),index);return texture;});
     gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,this.textures[1]);gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL,gl.NONE);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,noise);noise.close();
     gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,this.textures[1]);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);this.ready=true;
@@ -52,6 +53,7 @@ export class FogGpu {
     const left=state.u-renderWidth/2/state.scale,top=state.v-renderHeight/2/state.scale;
     gl.uniform4f(this.uniforms.viewUv,(left-layout.u)/layout.units,(top-layout.v)/layout.units,(left+renderWidth/state.scale-layout.u)/layout.units,(top+renderHeight/state.scale-layout.v)/layout.units);
     gl.uniform3f(this.uniforms.maskWorld,layout.u,layout.v,layout.units);
+    gl.uniform1f(this.uniforms.CloudSpan,cloudSpan(state.scale));
     const progress=this.transition?revealProgress(this.transition.started,performance.now(),state.reduced):1;
     this.canvas.dataset.fogRevealProgress=progress.toFixed(3);
     gl.uniform1f(this.uniforms.Reveal,progress);

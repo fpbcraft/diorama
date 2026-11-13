@@ -47,3 +47,9 @@ test('web cloud masks preserve clear interiors and opaque unknown cells at every
     for(let i=0;i<sharp.length;i++)assert.ok(mask.known[i]<=sharp[i]);
   }
 });
+
+test('overview clouds retain broad screen-space banks instead of dense repeated noise',async()=>{
+ const {cloudSpan}=await import('../../src/main/resources/diorama/web/fog-gpu.js');
+ for(const scale of [.01,.05,.15,.5])assert.ok(cloudSpan(scale)*scale>=1200);
+ assert.equal(cloudSpan(2),2048);
+});

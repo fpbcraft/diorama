@@ -672,6 +672,7 @@ public final class WebMap {
 		 * {@link ChunkSnapshot#key}: a chunk saved with the same blocks needs no redraw, and one that
 		 * got lower still redraws the tiles it used to reach.
 		 */
+		private final Set<Long> lossless = new HashSet<>();
 		private final Map<Long, Drawn> drawn = new ConcurrentHashMap<>();
 		private final int minimumY,maximumY;
 		private final boolean ceiling;
@@ -741,6 +742,7 @@ public final class WebMap {
 							if (sep > 0) {
 								int u=Integer.parseInt(name.substring(0,sep)),v=Integer.parseInt(name.substring(sep+1,name.length()-4));
 								this.tiles[z].add(key(u,v));
+								if(z==0&&Files.isRegularFile(WebTiles.lossless(file)))this.lossless.add(key(u,v));
 								if(!level.dimensionType().hasCeiling())this.coverageRepair.add(z,u,v);
 							}
 						} catch (NumberFormatException e) {
@@ -1061,6 +1063,9 @@ public final class WebMap {
 						Files.deleteIfExists(depthFile);
 						Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));
 					}
+					boolean rail=this.map.tracks.contains(this.id,u,v);
+					WebTiles.writeLossless(WebTiles.file(this.folder,0,u,v),pixels,rail);
+					if(rail)this.lossless.add(tile);else this.lossless.remove(tile);
 					long size = WebTiles.write(WebTiles.file(this.folder, 0, u, v), pixels);
 					if (size > 0) this.tiles[0].add(tile);
 					else this.tiles[0].remove(tile);
@@ -1279,7 +1284,10 @@ public final class WebMap {
 		}
 
 		void json(StringBuilder json) {
-			json.append("{\"id\":\"").append(this.id).append("\",\"folder\":\"").append(this.folder.getFileName())
+			json.append("{\"losslessTiles\":[");boolean firstLossless=true;
+			for(long key:this.lossless){if(!firstLossless)json.append(',');firstLossless=false;json.append('[').append((int)(key>>32)).append(',').append((int)key).append(']');}
+			json.append("],");
+			json.append("\"id\":\"").append(this.id).append("\",\"folder\":\"").append(this.folder.getFileName())
 				.append("\",\"fog\":\"").append(this.level.dimensionType().hasCeiling() ? "none" : "fog")
 				.append("\",\"zoomLevels\":").append(Math.max(1, this.zoomLevels)).append(",\"versions\":true,\"tiles\":[");
 			for (int z = 0; z < Math.max(1, this.zoomLevels); z++) {

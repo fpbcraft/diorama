@@ -38,6 +38,7 @@ jobs:
           node scripts/test-web-terrain.mjs
           node scripts/test-web-vehicles.mjs
           node scripts/test-web-tracks.mjs
+          node scripts/test-web-tiles.mjs
           node scripts/test-web-fog.mjs
       - name: Build Diorama (NeoForge 1.21.1)
         run: ./gradlew :1.21.1-neoforge:build --stacktrace

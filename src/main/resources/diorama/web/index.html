@@ -81,6 +81,7 @@ const ctx = canvas.getContext("2d");
 const fog = new WebFog(document.getElementById("fog"));
 let map = null;          // map.json
 let dim = null;          // the dimension shown
+let lossless = new Set();
 let present = [];        // per zoom, a Map of "u,v" -> the tile's version
 // The view: the map point at the middle of the screen, in map units (a block across), and how many CSS pixels a unit takes.
 let view = { u: 0, v: 0, scale: 1 };
@@ -181,6 +182,7 @@ function pick(d, first) {
 
 	const switched = !dim || !d || dim.id !== d.id;
 	dim = d || null;
+	lossless=new Set((dim?.losslessTiles||[]).map(([u,v])=>u+","+v));
 	// Each tile with its version (when it was last drawn), so a browser keeps a picture until it changes.
 	present = dim ? dim.tiles.map(list => {
 		const m = new Map();
@@ -295,7 +297,7 @@ function startLoads() {
 			setTimeout(draw, Math.min(30000, 500 * Math.pow(2, t.tries)) + 10);
 			draw();
 		};
-		img.src = key + ".jpg?v=" + ver;
+		img.src = key + (+z===0&&lossless.has(u+","+v)?".png?v=":".jpg?v=") + ver;
 	}
 	// Keep memory in hand: forget ready pictures far from anything wanted once there are many.
 	if (tiles.size > 600) {
@@ -367,8 +369,9 @@ function paint() {
 	const k = view.scale * dpr;
 	const sx = m => Math.round((m - left) * k), sy = m => Math.round((m - top) * k);
 	// Reproject cached terrain from other LODs while the requested JPEGs load.
+	const complete=sharp.every(([u,v])=>!!tile(z,u,v));
 	const cached=[];
-	for(const [key,entry]of tiles){
+	for(const [key,entry]of complete?[]:tiles){
 		if(!key.startsWith(dim.folder+"/"))continue;
 		const parts=key.split("/"),level=Number(parts.at(-2));
 		if(level>=z&&level<=coarse)continue;
@@ -382,7 +385,7 @@ function paint() {
 		ctx.imageSmoothingEnabled=k<map.tilePixels/map.tileUnits/(1<<level);ctx.drawImage(image,x0,y0,x1-x0,y1-y0);
 	}
 	let loaded = 0, any = 0;
-	for (let level = coarse; level >= z; level--) {
+	for (let level = complete?z:coarse; level >= z; level--) {
 		const units = tileUnits(level);
 		// Shrunk pictures averaged with the browser's best filter; stretched ones (closer in than the
 		// map's pixels, or a zoomed-out stand-in while the sharp one loads) keep their pixels square.
