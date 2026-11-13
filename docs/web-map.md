@@ -162,3 +162,9 @@ node scripts/export-web-frontend.mjs /path/to/frontend
 ```
 
 Serve these assets in front of the same public map-data backend. Keep live JSON uncached and preserve the normal same-origin Player History routes. This lets a hosted frontend preview use a specific Diorama commit alongside a Player History PR without installing that frontend on every Minecraft client.
+
+## Create railway rendering
+
+Straight and curved Create graph edges use the same track sampler and 4-pixels-per-block rail, sleeper and girder rasterizer as the in-game map. Gauges, monorails, phantom-track omission and optional curve girders follow the graph's material and geometry. The web worker resolves palette colours through the server's appearance table and composites the rails into normal terrain JPEGs, so browsers need no additional track renderer or requests.
+
+The server snapshots the graph every 30 seconds while the map is active and the server is not busy or saving. Only changed track tiles that the web map already renders are queued for refresh. This does not load chunks or reveal underground tracks: missing terrain depth hides the rail layer, and foreground terrain occludes it. Existing tiles containing tracks refresh after the first graph snapshot; no tile deletion is required.

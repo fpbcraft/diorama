@@ -91,6 +91,7 @@ public final class WebMap {
 	private dev.diorama.web.vehicles.WebVehicles vehicles;
 	private final WebWaypoints waypoints;
 	private WebQueueStatus queueStatus;
+	private final WebTracks tracks=new WebTracks();
 	private final VanillaTable table;
 	private final Path modsFolder;
 	final Path folder;
@@ -179,6 +180,7 @@ public final class WebMap {
 		WebMap map = running;
 		if (map == null || map.stopping || map.paused || map.serverBehind() || map.server.isCurrentlySaving()) return;
 		try {
+			if (level == map.server.overworld() && map.tracks.tick()) synchronized(map.wake){map.wake.notifyAll();}
 			if (map.vehicles != null) map.vehicles.tick(level);
 			if (map.live.capture(level, map.settings.everyChunk())) synchronized (map.wake) { map.wake.notifyAll(); }
 		} catch (RuntimeException | LinkageError error) {
@@ -376,6 +378,10 @@ public final class WebMap {
 					continue;
 				}
 				this.handleRequests(looks);
+				for(var key:this.tracks.update(looks)){
+					Dimension dimension=this.dimensions.get(key.dimension());if(dimension==null)continue;
+					long tile=WebTileQueue.key(key.tu(),key.tv());if(dimension.tiles[0].contains(tile))dimension.pending.add(tile);
+				}
 				this.handleLiveUpdates(looks);
 				boolean coverageWork=false;
 				for(Dimension dimension:this.dimensions.values()){
@@ -484,6 +490,7 @@ public final class WebMap {
 	 */
 	private void waitForChanges(Properties progress, long notBefore) {
 		while (!this.stopping && !this.redrawAll.get()) {
+			if(this.tracks.hasUpdates())return;
 			long wait = Math.max(CHECK_MS, notBefore - System.currentTimeMillis());
 			synchronized (this.wake) {
 				try {
@@ -492,7 +499,7 @@ public final class WebMap {
 					return;
 				}
 			}
-			if (this.stopping || this.redrawAll.get() || !this.requested.isEmpty() || this.live.hasUpdates()) return;
+			if (this.stopping || this.redrawAll.get() || !this.requested.isEmpty() || this.live.hasUpdates() || this.tracks.hasUpdates()) return;
 			if (System.currentTimeMillis() < notBefore) {
 				continue;
 			}
@@ -1036,12 +1043,15 @@ public final class WebMap {
 				}
 				try {
 					Path depthFile = this.folder.resolve("0").resolve(u + "_" + v + ".depth");
-					if (this.map.settings.depth()) {
+					if (this.map.settings.depth() || this.map.tracks.contains(this.id,u,v)) {
 						try {
 							var surface = TileBaker.surface(new TileKey(TileKey.SURFACE, u, v), 0, this.source, looks, false,
 								0, 0, Projection.TILE_PIXELS, Projection.TILE_PIXELS);
-							WebDepth.write(depthFile, surface);
-							dev.diorama.web.vehicles.VehicleGround.write(depthFile.resolveSibling(u + "_" + v + ".ground"), surface);
+							this.map.tracks.composite(this.id,u,v,pixels,surface);
+							if(this.map.settings.depth()){
+								WebDepth.write(depthFile, surface);
+								dev.diorama.web.vehicles.VehicleGround.write(depthFile.resolveSibling(u + "_" + v + ".ground"), surface);
+							}else{Files.deleteIfExists(depthFile);Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));}
 						} catch (RuntimeException | LinkageError | StackOverflowError error) {
 							Files.deleteIfExists(depthFile);
 							Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));
