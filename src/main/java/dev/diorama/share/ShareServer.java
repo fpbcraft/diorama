@@ -145,6 +145,7 @@ public final class ShareServer {
 
 	/** A message from a player's Diorama. Server thread. */
 	public static void receive(ServerPlayer player, byte[] data) {
+		if(dev.diorama.web.WebMap.receiveWaypoints(player,data))return;
 		ShareServer share = running;
 		if (share == null || !share.settings.share() || data.length == 0 || player.level().getServer() != share.server) {
 			return;

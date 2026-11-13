@@ -28,6 +28,17 @@ public final class VehiclePublicationTest {
 				var decoded=ByteBuffer.wrap(input.readAllBytes()).order(ByteOrder.LITTLE_ENDIAN);
 				for(float value:depth)if(Float.floatToIntBits(decoded.getFloat())!=Float.floatToIntBits(value))throw new AssertionError("Craft depth changed");
 			}
+			float[] reach=new float[80*80];Arrays.fill(reach,2f);
+			var silhouette=new dev.diorama.bake.CraftShadow.Silhouette(new double[9],new double[]{0,1,0},new double[]{1,0,0},new double[]{0,0,1},-5,-5,8,80,80,reach);
+			String caster=VehicleCaster.write(temp,silhouette,new double[3],new double[]{-5,-2,-5,5,2,5});
+			if(!caster.equals(VehicleCaster.write(temp,silhouette,new double[3],new double[]{-5,-2,-5,5,2,5})))throw new AssertionError("Stable caster identity");
+			byte[] shape=Files.readAllBytes(temp.resolve(caster));var data=ByteBuffer.wrap(shape).order(ByteOrder.LITTLE_ENDIAN);
+			if(data.getInt()!=0x44485344||data.getInt()!=1||data.getInt()!=80||data.getInt()!=80||data.getInt()!=8)throw new AssertionError("Shadow silhouette header");
+			try(var input=new InflaterInputStream(new java.io.ByteArrayInputStream(shape,128,shape.length-128))){
+				var values=ByteBuffer.wrap(input.readAllBytes()).order(ByteOrder.LITTLE_ENDIAN);
+				for(float value:reach)if(values.getFloat()!=value)throw new AssertionError("Sun silhouette changed");
+			}
+			if(args.length>0){Files.createDirectories(Path.of(args[0]));Files.copy(temp.resolve(caster),Path.of(args[0]).resolve("fixture-caster.dshd"),StandardCopyOption.REPLACE_EXISTING);}
 			System.out.println("Lossless craft colour, alpha, offset, depth and identity checks passed");
 		}finally{try(var files=Files.walk(temp)){for(Path file:files.sorted(Comparator.reverseOrder()).toList())Files.delete(file);}}
 	}

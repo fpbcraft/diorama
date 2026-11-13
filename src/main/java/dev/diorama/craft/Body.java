@@ -13,6 +13,10 @@ public interface Body {
 	/** The same from session to session, so a parked craft is still known when it comes back. */
 	UUID id();
 
+	/** A player-assigned name, or empty for an unnamed structure. */
+	default String label() { return ""; }
+	default String markerGroup() { return id().toString(); }
+
 	/** Transient add-on crafts disappear when no longer client-visible. */
 	default boolean persistWhenUnloaded() {
 		return true;
@@ -25,6 +29,9 @@ public interface Body {
 	default long version() {
 		return 0;
 	}
+
+	/** False for a resident dormant structure whose backing plot is currently unavailable. */
+	default boolean geometryAvailable() { return true; }
 
 	/** Its blocks as they are now, or null if they can't be read. */
 	@Nullable Blocks read(Looks looks);

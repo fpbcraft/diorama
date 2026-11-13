@@ -250,8 +250,13 @@ public final class ClientWebMap {
 			String path = exchange.getRequestURI().getPath();
 			Live now = live;
 			exchange.getResponseHeaders().set("Cache-Control", "no-cache");
-			if (path.equals("/overlay-api.js")) {
-				try (InputStream asset = ClientWebMap.class.getResourceAsStream("/diorama/web/overlay-api.js")) {
+			if (path.startsWith("/") && WebFogAssets.FILES.contains(path.substring(1))) {
+				byte[] asset = WebFogAssets.read(path.substring(1));
+				WebServer.send(exchange, asset == null ? 404 : 200, path.endsWith(".png") ? "image/png" : path.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/plain; charset=utf-8", head ? null : asset);
+				return;
+			}
+			if (path.equals("/overlay-api.js") || path.equals("/web-markers.js")) {
+				try (InputStream asset = ClientWebMap.class.getResourceAsStream("/diorama/web"+path)) {
 					WebServer.send(exchange, asset == null ? 404 : 200, "text/javascript; charset=utf-8", head || asset == null ? null : asset.readAllBytes());
 				}
 				return;
@@ -272,7 +277,7 @@ public final class ClientWebMap {
 				// Asked for with its version (the page's way), a picture never changes under that address.
 				String query = exchange.getRequestURI().getRawQuery();
 				exchange.getResponseHeaders().set("Cache-Control", query != null && query.startsWith("v=") ? "private, max-age=31536000, immutable" : "no-cache");
-				WebServer.send(exchange, 200, "image/jpeg", head ? null : tile);
+				WebServer.send(exchange, 200, path.endsWith(".fog.png") ? "image/png" : "image/jpeg", head ? null : tile);
 			}
 		} catch (IOException | RuntimeException e) {
 			// The browser went away, or the map closed under the request.
@@ -308,10 +313,11 @@ public final class ClientWebMap {
 	/** A tile's picture from {@code /<dimension>/<zoom>/<u>_<v>.jpg}, or null if the map has none there. */
 	private static byte @Nullable [] tile(Live now, String path) throws IOException {
 		String[] parts = path.substring(1).split("/");
-		if (parts.length != 3 || !parts[0].equals(now.folder()) || !parts[2].endsWith(".jpg")) {
+		if (parts.length != 3 || !parts[0].equals(now.folder()) || !(parts[2].endsWith(".jpg") || parts[2].endsWith(".fog.png"))) {
 			return null;
 		}
-		String name = parts[2].substring(0, parts[2].length() - 4);
+		boolean coverage = parts[2].endsWith(".fog.png");
+		String name = parts[2].substring(0, parts[2].length() - (coverage ? 8 : 4));
 		int split = name.indexOf('_');
 		int[] pixels;
 		try {
@@ -323,7 +329,7 @@ public final class ClientWebMap {
 		} catch (NumberFormatException e) {
 			return null;
 		}
-		return pixels == null ? null : WebTiles.jpeg(pixels);
+		return pixels == null ? null : coverage ? WebCoverage.png(pixels) : WebTiles.jpeg(pixels);
 	}
 
 	/** What the page reads first, as {@link WebMap#writeMapJson} writes it: here one dimension, the one the player is in. */
@@ -333,6 +339,7 @@ public final class ClientWebMap {
 			.append(",\"tilePixels\":").append(Projection.TILE_PIXELS)
 			.append(",\"sin\":").append(String.format(Locale.ROOT, "%.6f", now == null ? Projection.sin() : now.sin()))
 			.append(",\"cos\":").append(String.format(Locale.ROOT, "%.6f", now == null ? Projection.cos() : now.cos()))
+			.append(",\"fogCoverage\":true,\"roundedFog\":").append(dev.diorama.MapStyle.get().roundedFog())
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())
 			// The player's own map: the page follows the player, and asks again sooner.
