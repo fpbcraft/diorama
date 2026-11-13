@@ -219,7 +219,7 @@ public final class WebMap {
 			Files.createDirectories(this.folder);
 			WebPins.install(this.folder);
 			for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
-			for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js"}) {
+			for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js"}) {
 				try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
 					if (page != null) {
 						Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
@@ -349,7 +349,7 @@ public final class WebMap {
 			// no longer shows still drawn. Everything again.
 			String land = this.settings.everyChunk() ? "generated" : "visited";
 			if (!land.equals(progress.getProperty("share-land", land))) {
-				Diorama.LOGGER.info("share-land changed to {}: drawing the whole web map again", land);
+				Diorama.LOGGER.info("Web-map land changed to {}: drawing the whole web map again", land);
 				this.redrawAll.set(true);
 				this.forceAll.set(true);
 			} else {
@@ -374,8 +374,12 @@ public final class WebMap {
 				}
 				this.handleRequests(looks);
 				this.handleLiveUpdates(looks);
+				boolean coverageWork=false;
+				for(Dimension dimension:this.dimensions.values()){
+					dimension.repairCoverage();coverageWork|=dimension.coverageRepair.pending();
+				}
 				if (System.currentTimeMillis() < nextSavedScan && !this.redrawAll.get() && this.requested.isEmpty()) {
-					boolean pending = false;
+					boolean pending = coverageWork;
 					for (Dimension dimension : this.dimensions.values()) {
 						if (dimension.pending.size() == 0) continue;
 						pending = true;
@@ -400,6 +404,7 @@ public final class WebMap {
 					}
 					String id = level.dimension().identifier().toString();
 					Dimension dimension = this.dimensions.computeIfAbsent(id, key -> new Dimension(this, level, key));
+					dimension.repairCoverage();
 					long last = all ? -1 : Long.parseLong(progress.getProperty(id, "-1"));
 					if (last >= 0 && dimension.tiles[0].isEmpty() && checkedEmptyProgress.add(id)) {
 						Diorama.LOGGER.warn("Web map {}: progress file says rendering completed, but no base JPEG tiles exist; rescanning saved chunks from scratch", id);
@@ -593,6 +598,7 @@ public final class WebMap {
 			.append(",\"sin\":").append(String.format(Locale.ROOT, "%.6f", Projection.sin()))
 			.append(",\"cos\":").append(String.format(Locale.ROOT, "%.6f", Projection.cos()))
 			.append(",\"facing\":").append(Projection.facing().turns)
+			.append(",\"land\":\"").append(this.settings.everyChunk() ? "generated" : "visited").append('"')
 			.append(",\"depth\":").append(this.settings.depth())
 			.append(",\"vehicleFeed\":\"assets/diorama-vehicles/scene.json\"")
 			.append(",\"markerFeed\":\"markers.json\"")
@@ -633,6 +639,7 @@ public final class WebMap {
 		private final ServerSave save;
 		private final SavedChunkSource source;
 		private final WebTileQueue pending;
+		private final WebCoverageRepair coverageRepair;
 		private volatile int queuedCount;
 		/** Per region, per chunk: whether it's been looked at, and whether the map shows it. */
 		private final Map<Long, long[]> shown = new HashMap<>();
@@ -653,6 +660,7 @@ public final class WebMap {
 			this.id = id;
 			this.folder = map.folder.resolve(id.replace(':', '_').replace('/', '_'));
 			this.pending = new WebTileQueue(this.folder);
+			this.coverageRepair = new WebCoverageRepair(this.folder);
 			this.queuedCount = this.pending.size();
 			this.save = ServerSave.of(level);
 			int roof = level.dimensionType().hasCeiling() ? level.getMinY() + level.dimensionType().logicalHeight() : ChunkSource.NO_ROOF;
@@ -704,7 +712,9 @@ public final class WebMap {
 						int sep = name.indexOf('_');
 						try {
 							if (sep > 0) {
-								this.tiles[z].add(key(Integer.parseInt(name.substring(0, sep)), Integer.parseInt(name.substring(sep + 1, name.length() - 4))));
+								int u=Integer.parseInt(name.substring(0,sep)),v=Integer.parseInt(name.substring(sep+1,name.length()-4));
+								this.tiles[z].add(key(u,v));
+								if(!level.dimensionType().hasCeiling())this.coverageRepair.add(z,u,v);
 							}
 						} catch (NumberFormatException e) {
 							// Not one of the map's tiles: someone else's file.
@@ -717,6 +727,15 @@ public final class WebMap {
 					this.zoomLevels = z + 1;
 				}
 			}
+		}
+
+		private void repairCoverage() {
+			if(!this.coverageRepair.pending()||this.map.serverBehind()||this.map.server.isCurrentlySaving())return;
+			try {
+				boolean changed=this.coverageRepair.step(32,this.pending::add);
+				this.queuedCount=this.pending.size();this.pending.save();
+				if(changed)this.map.writeMapJson();
+			}catch(IOException error){Diorama.LOGGER.warn("Couldn't repair web-map coverage for {}",this.id,error);}
 		}
 
 		/** A chunk as last drawn: its {@link ServerSave.Info#blocks}, highest block and floor. */
@@ -1231,7 +1250,7 @@ public final class WebMap {
 
 		void json(StringBuilder json) {
 			json.append("{\"id\":\"").append(this.id).append("\",\"folder\":\"").append(this.folder.getFileName())
-				.append("\",\"fog\":\"").append(this.level.dimensionType().hasCeiling() ? "smoke" : "fog")
+				.append("\",\"fog\":\"").append(this.level.dimensionType().hasCeiling() ? "none" : "fog")
 				.append("\",\"zoomLevels\":").append(Math.max(1, this.zoomLevels)).append(",\"versions\":true,\"tiles\":[");
 			for (int z = 0; z < Math.max(1, this.zoomLevels); z++) {
 				if (z > 0) {
@@ -1250,7 +1269,7 @@ public final class WebMap {
 					// picture until it changes rather than asking again each visit.
 					long version;
 					try {
-						version = Files.getLastModifiedTime(WebTiles.file(this.folder, z, u, v)).toMillis() / 1000;
+						version = WebCoverage.version(WebTiles.file(this.folder, z, u, v));
 					} catch (IOException e) {
 						version = 0;
 					}

@@ -29,3 +29,14 @@ test('new coverage reveals smoothly, overlapping arrivals continue, and missing 
   assert.equal(revealFrom(previous,mask(255),.5).rgba[0],128);
   assert.equal(revealFrom(previous,mask(0),.5).rgba[0],0);
 });
+
+test('coarse zoom levels keep rounded cloud borders',()=>{
+  const sharp=new Float32Array(MASK_SIZE*MASK_SIZE);
+  for(let y=64;y<192;y++)for(let x=64;x<192;x++)sharp[y*MASK_SIZE+x]=1;
+  for(const texel of [16,64,256]){
+    const mask=fogMask(sharp,texel,true);
+    assert.ok(mask.known[64*MASK_SIZE+64]<1);
+    assert.equal(mask.known[128*MASK_SIZE+128],1);
+    for(let i=0;i<sharp.length;i++)assert.ok(mask.known[i]<=sharp[i]);
+  }
+});

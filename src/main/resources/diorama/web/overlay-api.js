@@ -17,6 +17,9 @@ export const screenPosition = (point, state) => {
 /** A composited overlay frame never calls the terrain renderer or its tile loader. */
 export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [], vehicleFeed = () => undefined }) => {
   const events = new EventTarget();
+  let visibility={clouds:true,sablePins:true,trainPins:true,sharedMarkers:true};
+  try {const saved=JSON.parse(localStorage.getItem('diorama-map-visibility')||'{}');for(const key of Object.keys(visibility))if(typeof saved[key]==='boolean')visibility[key]=saved[key];}catch{}
+
   const overlays = new Map();
   const canvas = document.createElement("canvas");
   canvas.setAttribute("aria-hidden", "true");
@@ -51,6 +54,13 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
     setDimension,
     depthTiles,
     vehicleFeed,
+    visible: key => visibility[key] !== false,
+    setVisible(key,value) {
+      if(!Object.hasOwn(visibility,key)||typeof value!=='boolean')return;
+      visibility[key]=value;
+      try{localStorage.setItem('diorama-map-visibility',JSON.stringify(visibility));}catch{}
+      events.dispatchEvent(new CustomEvent('visibility',{detail:{key,value}}));invalidate();
+    },
     registerOverlay(id, overlay) {
       if (disposed || overlays.has(id)) throw new Error("Overlay is disposed or already registered: " + id);
       overlays.set(id, overlay);

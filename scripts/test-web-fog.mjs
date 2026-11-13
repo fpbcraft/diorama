@@ -9,7 +9,7 @@ const temp=await mkdtemp(join(tmpdir(),'diorama-fog-'));
 try {
   const web=join(temp,'dev/diorama/web'),bake=join(temp,'dev/diorama/bake');await mkdir(web,{recursive:true});await mkdir(bake,{recursive:true});
   const files=[];
-  for(const name of ['WebCoverage','WebFogAssets']){const out=join(web,name+'.java');await copyFile(join(root,'src/main/java/dev/diorama/web',name+'.java'),out);files.push(out);}
+  for(const name of ['WebCoverage','WebCoverageRepair','WebFogAssets']){const out=join(web,name+'.java');await copyFile(join(root,'src/main/java/dev/diorama/web',name+'.java'),out);files.push(out);}
   const noise=join(bake,'FogNoise.java');await copyFile(join(root,'src/main/java/dev/diorama/bake/FogNoise.java'),noise);files.push(noise);
   const test=join(web,'WebFogTest.java');await copyFile(join(root,'tests/web/WebFogTest.java'),test);files.push(test);
   await cp(join(root,'src/main/resources/diorama/web'),join(temp,'diorama/web'),{recursive:true});

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-viewer="diorama">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,32 +7,53 @@
 <style>
 	:root {
 		--bg: #15171c;
-		--panel: rgba(20, 22, 27, 0.82);
+        --map-top: max(12px, env(safe-area-inset-top));
+        --map-control-height: 44px;
+		--panel: rgba(17, 26, 34, 0.94);
+        --map-radius: 10px;
+        --map-bottom: max(12px, env(safe-area-inset-bottom));
+        --map-shadow: 0 4px 18px #0004;
 		--text: #e8eaee;
 		--muted: #a3a9b4;
-		--line: rgba(255, 255, 255, 0.12);
+		--line: rgba(255, 255, 255, 0.20);
 	}
 	html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
 		font: 14px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 	canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 	#map { touch-action: none; cursor: grab; }
 	#map.dragging { cursor: grabbing; }
-	.bar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; pointer-events: none; flex-wrap: wrap; }
+	.bar { position: fixed; top: var(--map-top); left: 12px; right: 12px; display: flex; gap: 8px; pointer-events: none; flex-wrap: wrap; }
 	.bar > * { pointer-events: auto; }
-	.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; backdrop-filter: blur(6px); }
-	.zoom { position: fixed; right: 12px; bottom: 12px; display: flex; flex-direction: column; overflow: hidden; }
+	.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--map-radius); box-shadow:var(--map-shadow);backdrop-filter: blur(6px); }
+	.zoom { position: fixed; right: 12px; bottom: var(--map-bottom); display: flex; flex-direction: column; overflow: hidden; }
 	button { appearance: none; background: none; border: 0; color: var(--text); font: inherit; cursor: pointer; }
-	.zoom button { width: 40px; height: 40px; font-size: 20px; }
+	.zoom button { width: 44px; height: 44px; font-size: 20px; }
 	.zoom button + button { border-top: 1px solid var(--line); }
 	.dims { display: flex; overflow: hidden; }
-	.dims button { padding: 8px 12px; color: var(--muted); }
+	.dims button { min-height:calc(var(--map-control-height) - 2px);padding: 8px 14px; color: var(--muted); }
 	.dims button.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 	.dims button + button { border-left: 1px solid var(--line); }
 	.follow { padding: 8px 12px; color: var(--muted); }
 	.follow.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
-	.where { position: fixed; left: 12px; bottom: 12px; padding: 8px 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+	.where { position: fixed; left: 64px; bottom: var(--map-bottom);box-sizing:border-box;height:44px;max-width:calc(100vw - 260px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding: 12px 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 	.map-empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #334155; padding: 24px; text-align: center; }
 	button:focus-visible { outline: 2px solid #7aa7ff; outline-offset: -2px; }
+    .map-tools {position:fixed;top:var(--map-top);right:12px;display:flex;align-items:start;gap:8px;z-index:60;}
+    .map-icon-button {display:grid;place-items:center;box-sizing:border-box;width:44px;height:var(--map-control-height);color:var(--text);cursor:pointer;list-style:none;}
+    .map-icon-button::-webkit-details-marker{display:none;}
+    .map-menu[open]>.map-icon-button{border-color:#91d1c0;box-shadow:0 0 0 1px #91d1c066;}
+    .map-menu-body{position:absolute;right:0;top:calc(var(--map-control-height) + 10px);width:min(320px,calc(100vw - 24px));box-sizing:border-box;padding:18px;background:var(--panel);box-shadow:var(--map-shadow);}
+    .map-menu-body>strong{display:block;font-size:18px;}.map-menu-body>small{display:block;color:var(--muted);margin:4px 0 12px;}
+    .map-menu-body label{display:flex;align-items:center;gap:12px;min-height:58px;border-top:1px solid var(--line);cursor:pointer;}
+    .map-setting-icon{display:grid;place-items:center;width:36px;height:36px;background:#ffffff0b;border:1px solid var(--line);border-radius:8px;flex:none;}
+    .map-menu-body input[role=switch]{appearance:none;flex:none;margin-left:auto;width:38px;height:23px;border-radius:20px;background:#626d77;position:relative;cursor:pointer;}
+    .map-menu-body input[role=switch]:before{content:'';position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:white;transition:transform .14s;}
+    .map-menu-body input[role=switch]:checked{background:#39ad83;}.map-menu-body input[role=switch]:checked:before{transform:translateX(15px);}
+    .map-menu-body input:focus-visible,.map-icon-button:focus-visible{outline:2px solid #a1e5cf;outline-offset:3px;}
+    .map-update{position:fixed;right:68px;bottom:calc(var(--map-bottom) + 54px);padding:5px 8px;color:var(--muted);font-size:11px;pointer-events:auto;}
+    @media(max-width:760px){.map-tools{top:calc(var(--map-top) + 54px);}.map-update{right:68px;}}
+    button:hover,.map-icon-button:hover{background-color:#ffffff0c;}
+    @media(prefers-reduced-motion:reduce){.map-menu-body input[role=switch]:before{transition:none;}}
 </style>
 </head>
 <body>
@@ -40,11 +61,15 @@
 <canvas id="fog" aria-hidden="true" style="pointer-events:none"></canvas>
 <div id="overlays" style="position:fixed;inset:0;pointer-events:none"></div>
 <div class="bar"><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
+<div id="map-tools" class="map-tools"></div>
+<time id="map-update" class="map-update panel" hidden></time>
 <div class="zoom panel"><button id="in" aria-label="Zoom in">+</button><button id="out" aria-label="Zoom out">&minus;</button></div>
 <div class="where panel" id="where" hidden></div>
 <div class="map-empty" id="empty"></div>
 <script type="module">
+import { MapControls } from "./map-controls.js";
 import { WebMarkers } from "./web-markers.js";
+import { coverageSources } from "./fog-coverage.js";
 import { WebFog } from "./web-fog.js";
 import { createOverlayApi, projectWorld } from "./overlay-api.js";
 "use strict";
@@ -94,10 +119,12 @@ const extensionApi = createOverlayApi({
     setFollow(false); draw(); saveHash(); return true;
   },
 });
+const controls=new MapControls(extensionApi);
+extensionApi.events.addEventListener('visibility',()=>draw());
 const publicMarkers=new WebMarkers(extensionApi,()=>map?.markerFeed);
 window.diorama = extensionApi;
 window.dispatchEvent(new Event("diorama:ready"));
-addEventListener("pagehide", () => { publicMarkers.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
+addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 
@@ -145,6 +172,10 @@ function showPlayerWhere() {
 }
 
 function pick(d, first) {
+    const updated=document.getElementById('map-update');
+    updated.hidden=!Number.isFinite(map.updated);
+    if(!updated.hidden){const date=new Date(map.updated);updated.dateTime=date.toISOString();updated.textContent='Map updated '+date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});updated.title='Latest map publication: '+date.toLocaleString();}
+
 	const switched = !dim || !d || dim.id !== d.id;
 	dim = d || null;
 	// Each tile with its version (when it was last drawn), so a browser keeps a picture until it changes.
@@ -307,7 +338,7 @@ function paint() {
 	ctx.fillStyle = map ? map.background : "#15171c";
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
 	if (!map || !dim) {
-		fog.update({u:0,v:0,scale:1,width:w,height:h,dpr,dimension:"",coverage:false,rounded:true,smoke:false},[]);
+		fog.update({u:0,v:0,scale:1,width:w,height:h,dpr,dimension:"",enabled:false,coverage:false,rounded:true,smoke:false},[]);
 		return;
 	}
 	const z = zoomFor(view.scale);
@@ -332,8 +363,22 @@ function paint() {
 	// as a thin line between the pictures.
 	const k = view.scale * dpr;
 	const sx = m => Math.round((m - left) * k), sy = m => Math.round((m - top) * k);
+	// Reproject cached terrain from other LODs while the requested JPEGs load.
+	const cached=[];
+	for(const [key,entry]of tiles){
+		if(!key.startsWith(dim.folder+"/"))continue;
+		const parts=key.split("/"),level=Number(parts.at(-2));
+		if(level>=z&&level<=coarse)continue;
+		const [u,v]=parts.at(-1).split("_").map(Number),image=entry.state==="ready"?entry.img:entry.old;
+		if(image&&present[level]?.has(u+","+v))cached.push({level,u,v,image});
+	}
+	cached.sort((a,b)=>b.level-a.level);
+	for(const {level,u,v,image}of cached){
+		const units=tileUnits(level),x0=sx(u*units),x1=sx((u+1)*units),y0=sy(v*units),y1=sy((v+1)*units);
+		if(x1<=0||y1<=0||x0>=canvas.width||y0>=canvas.height)continue;
+		ctx.imageSmoothingEnabled=k<map.tilePixels/map.tileUnits/(1<<level);ctx.drawImage(image,x0,y0,x1-x0,y1-y0);
+	}
 	let loaded = 0, any = 0;
-	const fogSources = [];
 	for (let level = coarse; level >= z; level--) {
 		const units = tileUnits(level);
 		// Shrunk pictures averaged with the browser's best filter; stretched ones (closer in than the
@@ -347,12 +392,13 @@ function paint() {
 			if (level === z) loaded++;
 			const x0 = sx(u * units), x1 = sx((u + 1) * units), y0 = sy(v * units), y1 = sy((v + 1) * units);
 			ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
-			const ver = present[level]?.get(u + "," + v);
-			fogSources.push({u:u*units,v:v*units,units,mask:tileKey(level,u,v)+".fog.png?v="+ver});
 		}
 	}
 	fillState = { wanted: sharp.length, loaded, any };
-	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether"},fogSources);
+	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,
+    enabled:dim.fog!=="none" && extensionApi.visible("clouds"),rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether",
+    validCoverage:source=>source.dimension!==dim.id || present[source.zoom]?.get(source.key)===source.version},
+    layout=>coverageSources(present,layout,(z,u,v,extension,version)=>tileKey(z,u,v)+extension+"?v="+version,map.tileUnits,dim.id));
 	if (player && player.dimension === dim.id) drawPlayer(sx(player.u), sy(player.v), dpr);
 }
 
