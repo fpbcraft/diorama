@@ -172,13 +172,16 @@ public final class VanillaTable {
 	 * The table of every vanilla block's look in {@code looks}, working each out first, and the
 	 * game's colour maps as they are now. For the game test that makes the shipped table.
 	 */
-	public static VanillaTable of(Looks looks) {
+	public static VanillaTable of(Looks looks) { return of(looks, false); }
+
+	/** A server appearance profile may include modded client models and resource packs too. */
+	public static VanillaTable of(Looks looks, boolean includeMods) {
 		List<Look> kept = new ArrayList<>();
 		Map<Look, Integer> index = new HashMap<>();
 		Map<String, Entry> blocks = new java.util.TreeMap<>();
 		for (Block block : BuiltInRegistries.BLOCK) {
 			String name = BuiltInRegistries.BLOCK.getKey(block).toString();
-			if (!name.startsWith("minecraft:")) {
+			if (!includeMods && !name.startsWith("minecraft:")) {
 				continue;
 			}
 			List<BlockState> states = block.getStateDefinition().getPossibleStates();

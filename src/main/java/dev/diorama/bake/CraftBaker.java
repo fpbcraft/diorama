@@ -25,7 +25,7 @@ public final class CraftBaker {
 	private static final int WATER = 0x3F76E4;
 
 	private final CraftBlocks blocks;
-	private final BlockLooks looks;
+	private final Looks looks;
 	private final MapStyle style;
 	/** Craft to world: the world offsets of one step along the grid's x, y and z, in that order. */
 	private final double[] l;
@@ -75,7 +75,7 @@ public final class CraftBaker {
 	public record Image(int edge, int width, int height, double offsetU, double offsetV, int[][] mips, float[] depth, double[] linear, double pitchSin, int[] sunless) {
 	}
 
-	private CraftBaker(CraftBlocks blocks, double[] linear, double[] inv, double originY, BlockLooks looks, MapStyle style) {
+	private CraftBaker(CraftBlocks blocks, double[] linear, double[] inv, double originY, Looks looks, MapStyle style) {
 		this.blocks = blocks;
 		this.looks = looks;
 		this.style = style;
@@ -93,7 +93,7 @@ public final class CraftBaker {
 	 * The craft drawn turned by {@code linear} (see {@link #l}) with its grid origin at height
 	 * {@code originY}, or null if it can't be. Any thread.
 	 */
-	public static @Nullable Image bake(CraftBlocks blocks, double[] linear, double originY, BlockLooks looks, MapStyle style, boolean fast) {
+	public static @Nullable Image bake(CraftBlocks blocks, double[] linear, double originY, Looks looks, MapStyle style, boolean fast) {
 		double[] inv = GridRay.invert(linear);
 		return inv == null ? null : new CraftBaker(blocks, linear.clone(), inv, originY, looks, style).image(fast);
 	}
@@ -143,6 +143,14 @@ public final class CraftBaker {
 			most = Math.max(most, Math.max(Math.abs(out[0] * c[0] + out[1] * c[1] - c[2]), Math.abs(out[2] * c[0] + out[3] * c[1] - c[3])));
 		}
 		return most;
+	}
+
+	/** Shared half-pixel rebake rule for client and web crafts. */
+	public static boolean stretched(double[] from, double[] to, CraftBlocks b) {
+		double[] warp = new double[4];
+		double miss = CraftBaker.warp(from,to,b.sizeX,b.sizeY,b.sizeZ,warp);
+		double radius = .5*Math.sqrt((double)b.sizeX*b.sizeX+(double)b.sizeY*b.sizeY+(double)b.sizeZ*b.sizeZ);
+		return miss + radius * (Math.abs(warp[0]-1)+Math.abs(warp[1])+Math.abs(warp[2])+Math.abs(warp[3]-1)) > .5/Projection.PIXELS_PER_UNIT;
 	}
 
 	private @Nullable Image image(boolean fast) {
@@ -307,11 +315,11 @@ public final class CraftBaker {
 			double tEnter = ray.enter;
 			double tExit = ray.exit();
 			int enteredAxis = ray.axis;
-			if (id != 0 && id < this.looks.kind.length && this.looks.kind[id] != BlockLooks.AIR) {
+			if (id != 0 && id < this.looks.kind.length && this.looks.kind[id] != Looks.AIR) {
 				byte kind = this.looks.kind[id];
 				double tHit = tEnter;
 				int hitAxis = enteredAxis;
-				int shape = kind == BlockLooks.SOLID ? this.looks.shape[id] : 0;
+				int shape = kind == Looks.SOLID ? this.looks.shape[id] : 0;
 				boolean hit = true;
 				if (shape != 0) {
 					hit = false;
@@ -355,12 +363,12 @@ public final class CraftBaker {
 					double hz = o[2] + r[2] * tHit;
 					int sign = r[hitAxis] > 0 ? -1 : 1;
 					this.shade(id, cell, hitAxis, sign, hx, hy, hz, sample);
-					if (kind == BlockLooks.GLASS) {
+					if (kind == Looks.GLASS) {
 						// Glass tints what's behind it and lets the ray on.
 						transR *= 0.5F + 0.5F * this.albedoR;
 						transG *= 0.5F + 0.5F * this.albedoG;
 						transB *= 0.5F + 0.5F * this.albedoB;
-					} else if (kind == BlockLooks.PLANT) {
+					} else if (kind == Looks.PLANT) {
 						float w = 0.5F * left;
 						this.outR += this.shadedR * transR * w;
 						this.outG += this.shadedG * transG * w;
@@ -398,7 +406,7 @@ public final class CraftBaker {
 			return false;
 		}
 		int id = b.look(this.looks, CraftBlocks.index(b.sizeX, b.sizeZ, x, y, z));
-		return id != 0 && id < this.looks.kind.length && this.looks.kind[id] == BlockLooks.SOLID;
+		return id != 0 && id < this.looks.kind.length && this.looks.kind[id] == Looks.SOLID;
 	}
 
 	/** Lights the face of {@code cell} facing {@code sign} along {@code axis}, hit at (hx, hy, hz) in the craft's frame. */
@@ -447,15 +455,15 @@ public final class CraftBaker {
 	}
 
 	private void albedo(int id, boolean top) {
-		BlockLooks l = this.looks;
+		Looks l = this.looks;
 		int base = top ? l.top[id] : l.side[id];
 		int tinted = top ? l.topTinted[id] : l.sideTinted[id];
 		float w = top ? l.topTintWeight[id] : l.sideTintWeight[id];
 		int tint = switch (l.tint[id]) {
-			case BlockLooks.TINT_GRASS -> GRASS;
-			case BlockLooks.TINT_FOLIAGE -> FOLIAGE;
-			case BlockLooks.TINT_DRY_FOLIAGE -> DRY_FOLIAGE;
-			case BlockLooks.TINT_WATER -> WATER;
+			case Looks.TINT_GRASS -> GRASS;
+			case Looks.TINT_FOLIAGE -> FOLIAGE;
+			case Looks.TINT_DRY_FOLIAGE -> DRY_FOLIAGE;
+			case Looks.TINT_WATER -> WATER;
 			default -> l.constantTint[id] < 0 ? 0xFFFFFF : l.constantTint[id];
 		};
 		float[] lin = TileBaker.SRGB_TO_LINEAR;

@@ -139,3 +139,7 @@ routes; do not link the private recorder directory into the map root.
 The terrain remains Diorama's textured projection, with a GPU vehicle overlay supplied by Player History. Enable `web-map-depth=true` and force-render existing tiles to let terrain hide vehicles behind blocks. This preserves the current fixed map facing and pitch; it does not add BlueMap-style free camera rotation or full terrain meshes.
 
 Dirty queues are bounded to 2,048 chunks per dimension and live snapshots to 256 chunks globally. Larger bursts fall back to saved-region scans. Live snapshots are transient; saved world data remains authoritative across restarts. Existing pause/cancel, share-land, save and tick-load safeguards still apply.
+
+## Independent Create and Sable vehicles
+
+See [Independent web vehicles](web-vehicles.md) for the shared in-game craft renderer, appearance-profile export, configuration and Player History integration. BlueMap and BlueMap3D are not required for this publisher.

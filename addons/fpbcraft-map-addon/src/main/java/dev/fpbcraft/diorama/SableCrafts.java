@@ -1,7 +1,7 @@
 package dev.fpbcraft.diorama;
 
 import dev.diorama.Settings;
-import dev.diorama.bake.BlockLooks;
+import dev.diorama.bake.Looks;
 import dev.diorama.bake.CraftBlocks;
 import dev.diorama.craft.Body;
 import dev.diorama.craft.Crafts;
@@ -75,7 +75,7 @@ final class SableCrafts implements Crafts.Source {
         }
 
         @Override
-        public Blocks read(BlockLooks looks) {
+        public Blocks read(Looks looks) {
             try {
                 Object plot = ReflectSupport.call(sublevel, "getPlot");
                 Object bb = ReflectSupport.call(plot, "getBoundingBox");

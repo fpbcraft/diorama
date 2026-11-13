@@ -504,9 +504,9 @@ final class CraftPainter {
 		double y = pose[1];
 		// Height shading changes too little over a few blocks to see.
 		boolean turned = image != null
-			? image.pitchSin() != Projection.sin() || Math.abs(craft.imageY - y) > REBAKE_CLIMB || stretched(image.linear(), linear, b)
+			? image.pitchSin() != Projection.sin() || Math.abs(craft.imageY - y) > REBAKE_CLIMB || CraftBaker.stretched(image.linear(), linear, b)
 			// Too big to bake at the last angle: it may fit at another.
-			: craft.triedLinear != null && stretched(craft.triedLinear, linear, b);
+			: craft.triedLinear != null && CraftBaker.stretched(craft.triedLinear, linear, b);
 		if (inputs.equals(craft.imageFrom) && (!turned || System.nanoTime() - craft.imageAt < craft.imageCost * IDLE_PER_WORK)) {
 			return;
 		}
@@ -520,14 +520,6 @@ final class CraftPainter {
 			craft.imageCost = System.nanoTime() - start;
 			return baked;
 		}, "draw a craft");
-	}
-
-	/** Whether turning from {@code from} to {@code to} moves any of the craft's corners far enough to show on the map. */
-	private static boolean stretched(double[] from, double[] to, CraftBlocks b) {
-		double[] w = new double[4];
-		double missed = CraftBaker.warp(from, to, b.sizeX, b.sizeY, b.sizeZ, w);
-		double radius = 0.5 * Math.sqrt(b.sizeX * b.sizeX + b.sizeY * b.sizeY + b.sizeZ * b.sizeZ);
-		return missed + radius * (Math.abs(w[0] - 1) + Math.abs(w[1]) + Math.abs(w[2]) + Math.abs(w[3] - 1)) > REBAKE_MISS;
 	}
 
 	/**
