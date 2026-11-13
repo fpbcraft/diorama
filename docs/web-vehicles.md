@@ -26,7 +26,7 @@ A dedicated server does not have the client's baked models or resource packs. Fo
 /diorama-export-web-appearance
 ```
 
-It writes `diorama-web-appearance/looks.dat` and `style.json` in the client game folder. Install that folder at the server's `config/diorama-web-appearance/`, then restart. This is an explicit local export, not an upload endpoint. Diorama detects profile changes and refreshes terrain through the existing background render queue. Re-export after changing resource packs or the in-game map style.
+It writes `diorama-web-appearance/looks.dat`, `style.json` and `waypoint-icons.json` in the client game folder. Install that folder at the server's `config/diorama-web-appearance/`, then restart. This is an explicit local export, not an upload endpoint. Diorama detects profile changes and refreshes terrain through the existing background render queue. Re-export after changing resource packs or the in-game map style.
 
 Without a profile, the server uses its shipped vanilla table and mod-jar fallback colours. Do not describe that fallback as pixel-identical to a customised client. The transport tests establish lossless colour/alpha/depth export; real Create/Sable screenshot comparisons remain required to establish visual parity.
 

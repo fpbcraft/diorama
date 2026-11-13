@@ -140,6 +140,7 @@ public final class WebMap {
 			return;
 		}
 		WebMap map = new WebMap(server, settings, table, modsFolder);
+		map.waypoints.icons(configFolder.resolve("diorama-web-appearance/waypoint-icons.json"));
 		if (map.start()) {
 			running = map;
 			map.waypoints.start();
