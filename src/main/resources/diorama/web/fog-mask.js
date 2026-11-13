@@ -79,3 +79,13 @@ const markReach = (rgba,known,texel,steps) => {
     else if(sum(notEmpty)===0)rgba[(y*MASK_SIZE+x)*4+2]=255;
   }
 };
+
+/** Web clouds need coverage and a soft border, without the volumetric shader's reach flags. */
+export const cloudMask = (sharp,texel,rounded=true) => {
+  const known=rounded?roundKnown(sharp,Math.max(1,Math.round(10/texel))):sharp;
+  const a=new Float32Array(known.length),b=new Float32Array(known.length),radius=Math.max(1,Math.min(8,Math.round(8/texel)));
+  boxBlur(known,a,radius);boxBlur(a,b,radius,MASK_SIZE,MASK_SIZE,false);
+  const rgba=new Uint8Array(known.length*4),detail=new Uint8Array(rgba.length);
+  for(let i=0;i<known.length;i++){rgba[i*4]=Math.round(known[i]*255);rgba[i*4+3]=255;detail[i*4+2]=Math.round(b[i]*255);detail[i*4+3]=255;}
+  return {rgba,detail,known};
+};
