@@ -6,6 +6,7 @@
 		"BiomeManagerAccessor",
 		"ChunkMapInvoker",
     "WebMapChunkMixin",
+    "WebMapMaterialMixin",
     "WebMapTickMixin"
 	],
 	"client": [

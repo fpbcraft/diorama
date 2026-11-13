@@ -69,6 +69,7 @@ public final class ChunkSnapshot {
 	public final int floorY;
 	/** Per section, the filled copycats in it; null when the chunk has none, as nearly every chunk. */
 	private final @Nullable SectionCopycats @Nullable [] copycats;
+	private final java.util.List<DomumMaterials.Cell> materials;
 	/** Which way a turned view looks, north for the chunk itself; see {@link #turned(Facing)}. */
 	private final Facing facing;
 	private final @Nullable ChunkSnapshot base;
@@ -108,6 +109,7 @@ public final class ChunkSnapshot {
 		this.maxY = base.maxY;
 		this.floorY = base.floorY;
 		this.copycats = turnedCopycats(base.copycats, facing);
+		this.materials=base.materials;
 		for (int x = 0; x < 16; x++) {
 			for (int z = 0; z < 16; z++) {
 				this.surface[(z << 4) | x] = base.surface(this.localX(x, z), this.localZ(x, z));
@@ -230,6 +232,7 @@ public final class ChunkSnapshot {
 		this.maxY = top <= chunk.getMinY() ? Integer.MIN_VALUE : top;
 		this.floorY = floorY(floor, chunk.getMinY());
 		this.copycats = Copycats.INSTALLED ? copycats(chunk, sections.length) : null;
+		this.materials=DomumMaterials.capture(chunk);
 	}
 
 	/**
@@ -278,6 +281,7 @@ public final class ChunkSnapshot {
 		this.maxY = top <= chunk.getMinY() ? Integer.MIN_VALUE : top;
 		this.floorY = chunk.getMinY();
 		this.copycats = null;
+		this.materials=java.util.List.of();
 	}
 
 	/**
@@ -339,6 +343,7 @@ public final class ChunkSnapshot {
 		this.maxY = top <= level.getMinY() ? Integer.MIN_VALUE : top;
 		this.floorY = floorY(floor, level.getMinY());
 		this.copycats = null;
+		this.materials=chunk.materials();
 	}
 
 	/** A chunk read from the world's save, its tints blended as the player's options ask; see the constructor. */
@@ -405,6 +410,18 @@ public final class ChunkSnapshot {
 	 * like the section's ids, and the block it's filled with.
 	 */
 	public record SectionCopycats(int[] at, BlockState[] material) {
+	}
+
+	public java.util.Map<String,BlockState> materialSlots(int x,int y,int z){
+		for(var cell:this.materials)if(cell.x()==(x&15)&&cell.y()==y&&cell.z()==(z&15))return cell.slots();return java.util.Map.of();
+	}
+	public java.util.List<DomumMaterials.Cell> materials(int index){
+		if(this.materials.isEmpty())return java.util.List.of();
+		int sectionY=index+this.minSectionY;
+		return this.materials.stream().filter(cell->cell.y()>>4==sectionY).map(cell->{
+			var slots=new java.util.TreeMap<String,BlockState>();cell.slots().forEach((key,state)->slots.put(key,this.facing.turned(state)));
+			return new DomumMaterials.Cell(this.facing.blockX(cell.x(),cell.z())&15,cell.y(),this.facing.blockZ(cell.x(),cell.z())&15,slots);
+		}).toList();
 	}
 
 	/** The filled copycats in a section, or null if it has none. */

@@ -42,6 +42,8 @@ jobs:
           node scripts/test-web-fog.mjs
       - name: Build Diorama (NeoForge 1.21.1)
         run: ./gradlew :1.21.1-neoforge:build --stacktrace
+      - name: Check material-slot model rendering
+        run: node scripts/test-material-models.mjs
       - name: Check public waypoint ownership and native pins
         run: node scripts/test-web-markers.mjs
       - name: Compile FPBCraft companion addon

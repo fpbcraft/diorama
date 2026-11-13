@@ -13,6 +13,7 @@ final class WebAppearance {
 		try {
 			var bytes = new java.io.ByteArrayOutputStream(); table.write(bytes);
 			var digest = java.security.MessageDigest.getInstance("SHA-256"); digest.update(bytes.toByteArray());
+			if (dev.diorama.data.DomumMaterials.INSTALLED) digest.update("domum-materials-v1".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 			digest.update(new Gson().toJson(MapStyle.get()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
 			digest.update(dev.diorama.Projection.facing().id().getBytes(java.nio.charset.StandardCharsets.UTF_8));
 			return java.util.HexFormat.of().formatHex(digest.digest());

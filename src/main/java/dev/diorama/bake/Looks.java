@@ -390,6 +390,28 @@ public abstract class Looks {
 		return this.copycatIds.computeIfAbsent(key, unused -> this.addCopycat(copycat, material));
 	}
 
+	private record MaterialKey(int state,Map<String,BlockState> slots){}
+	private final Map<MaterialKey,Integer> materialIds=new ConcurrentHashMap<>();
+	/** A Domum block's shape with its complete material-slot palette, bounded like filled copycats. */
+	public int materiallyTextured(int base,Map<String,BlockState> slots){
+		this.ensure(base);if(slots.isEmpty()||base>=this.registrySize||this.kind.length==this.registrySize)return base;
+		if(this.materialIds.size()>=COPYCAT_LOOKS)return base;
+		var key=new MaterialKey(base,Map.copyOf(slots));
+		return this.materialIds.computeIfAbsent(key,unused->{
+			BlockState state=Block.BLOCK_STATE_REGISTRY.byId(base);if(state==null)return base;
+			FaceColor[] faces=this.materialFaces(state,key.slots);if(faces==null)return base;
+			int primary=-1,tintSource=-1;byte emission=0;
+			for(BlockState material:new java.util.TreeMap<>(slots).values()){
+				if(material.getBlock()==state.getBlock())continue;int id=this.lookId(material);
+				if(primary<0||this.kind[id]==SOLID)primary=id;if(this.tint[id]!=TINT_NONE&&tintSource<0)tintSource=id;emission=(byte)Math.max(emission,this.emission[id]);
+			}
+			if(primary<0||this.copycatCount.get()>=this.kind.length-this.registrySize)return base;
+			int id=this.addCopycat(base,primary);if(id<this.registrySize)return base;
+			this.setColours(id,faces[0],faces[1]);if(tintSource>=0){this.tint[id]=this.tint[tintSource];this.constantTint[id]=this.constantTint[tintSource];}this.emission[id]=emission;return id;
+		});
+	}
+	protected FaceColor @Nullable [] materialFaces(BlockState state,Map<String,BlockState> slots){return null;}
+
 	private void warnFull() {
 		if (!this.warnedCopycats) {
 			this.warnedCopycats = true;

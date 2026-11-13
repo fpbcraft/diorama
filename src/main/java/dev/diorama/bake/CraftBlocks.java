@@ -14,8 +14,14 @@ public final class CraftBlocks {
 	final int[] states;
 	/** For filled copycats, the material's state id by cell index. */
 	final Int2IntMap copycats;
+	final java.util.Map<Integer,java.util.Map<String,net.minecraft.world.level.block.state.BlockState>> materials;
 
 	public CraftBlocks(int sizeX, int sizeY, int sizeZ, int[] states, Int2IntMap copycats) {
+		this(sizeX,sizeY,sizeZ,states,copycats,java.util.Map.of());
+	}
+
+	public CraftBlocks(int sizeX,int sizeY,int sizeZ,int[] states,Int2IntMap copycats,java.util.Map<Integer,java.util.Map<String,net.minecraft.world.level.block.state.BlockState>> materials){
+		this.materials=java.util.Map.copyOf(materials);
 		this.sizeX = sizeX;
 		this.sizeY = sizeY;
 		this.sizeZ = sizeZ;
@@ -47,12 +53,13 @@ public final class CraftBlocks {
 	/** Compares copied data without resolving models or textures on the server tick. */
 	public boolean sameBlocks(CraftBlocks other) {
 		return this.sizeX == other.sizeX && this.sizeY == other.sizeY && this.sizeZ == other.sizeZ
-			&& java.util.Arrays.equals(this.states, other.states) && this.copycats.equals(other.copycats);
+			&& java.util.Arrays.equals(this.states, other.states) && this.copycats.equals(other.copycats) && this.materials.equals(other.materials);
 	}
 
 	/** The look to draw a cell with: its state, or a filled copycat's look. */
 	int look(Looks looks, int index) {
 		int id = this.states[index];
+		var slots=this.materials.get(index);if(id!=0&&slots!=null)return looks.materiallyTextured(id,slots);
 		if (id == 0 || this.copycats.isEmpty()) {
 			return looks.ensure(id);
 		}
@@ -81,7 +88,7 @@ public final class CraftBlocks {
 
 	/** Whether it would draw the same as {@code other}: states that differ only in ways that don't show are the same here. */
 	public boolean looksLike(CraftBlocks other, Looks looks) {
-		if (this.sizeX != other.sizeX || this.sizeY != other.sizeY || this.sizeZ != other.sizeZ || !this.copycats.equals(other.copycats)) {
+		if (this.sizeX != other.sizeX || this.sizeY != other.sizeY || this.sizeZ != other.sizeZ || !this.copycats.equals(other.copycats) || !this.materials.equals(other.materials)) {
 			return false;
 		}
 		for (int i = 0; i < this.states.length; i++) {

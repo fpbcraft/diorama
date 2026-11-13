@@ -106,7 +106,7 @@ public final class ChunkTags {
 			solid = heights(states, minSection, Heightmap.Types.MOTION_BLOCKING);
 		}
 		finished &= surface != null && solid != null;
-		return new SavedChunk(chunkX, chunkZ, finished, states, biomes, blockLight, skyLight, finished ? surface : new int[0], finished ? solid : new int[0]);
+		return new SavedChunk(chunkX, chunkZ, finished, states, biomes, blockLight, skyLight, finished ? surface : new int[0], finished ? solid : new int[0], finished ? DomumMaterials.saved(chunkX,chunkZ,tag) : java.util.List.of());
 	}
 
 	/** A saved section's blocks, or null if it has none or they can't be read. */

@@ -259,6 +259,7 @@ public final class SubLevelBodies {
 			try {
 				int[] states = CraftBlocks.empty(sx, sy, sz);
 				Int2IntMap copycats = new Int2IntOpenHashMap();
+				var materials=new java.util.HashMap<Integer,java.util.Map<String,BlockState>>();
 				BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 				for (int cx = x0 >> 4; cx <= this.box[3] >> 4; cx++) {
 					for (int cz = z0 >> 4; cz <= this.box[5] >> 4; cz++) {
@@ -280,8 +281,10 @@ public final class SubLevelBodies {
 										}
 										int index = CraftBlocks.index(sx, sz, x - x0, y - y0, z - z0);
 										states[index] = Block.BLOCK_STATE_REGISTRY.getId(state);
-										if (Copycats.INSTALLED && state.hasBlockEntity()) {
-											BlockState material = Copycats.material(chunk.getBlockEntity(pos.set(x, y, z)));
+										if ((Copycats.INSTALLED || dev.diorama.data.DomumMaterials.INSTALLED) && state.hasBlockEntity()) {
+											var entity=chunk.getBlockEntity(pos.set(x,y,z));
+											var slots=dev.diorama.data.DomumMaterials.read(entity);if(!slots.isEmpty())materials.put(index,slots);
+											BlockState material = Copycats.material(entity);
 											if (material != null) {
 												copycats.put(index, Block.BLOCK_STATE_REGISTRY.getId(material));
 											}
@@ -292,7 +295,7 @@ public final class SubLevelBodies {
 						}
 					}
 				}
-				return new Body.Blocks(new CraftBlocks(sx, sy, sz, states, copycats), new int[] {x0, y0, z0});
+				return new Body.Blocks(new CraftBlocks(sx, sy, sz, states, copycats,materials), new int[] {x0, y0, z0});
 			} catch (RuntimeException e) {
 				skip(e);
 				return null;

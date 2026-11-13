@@ -29,6 +29,7 @@ public record SavedChunk(
 	@Nullable DataLayer[] blockLight,
 	@Nullable DataLayer[] skyLight,
 	int[] surface,
-	int[] solid
+	int[] solid,
+	java.util.List<DomumMaterials.Cell> materials
 ) {
 }
