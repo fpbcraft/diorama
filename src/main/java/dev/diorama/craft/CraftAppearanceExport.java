@@ -23,7 +23,10 @@ public final class CraftAppearanceExport {
 				Path folder = client.gameDirectory.toPath().resolve("diorama-web-appearance");
 				Files.createDirectories(folder);
 				try (var output = Files.newOutputStream(folder.resolve("looks.dat"))) { VanillaTable.of(looks, true).write(output); }
-				Files.writeString(folder.resolve("style.json"), new GsonBuilder().setPrettyPrinting().create().toJson(MapStyle.get()));
+				var gson = new GsonBuilder().setPrettyPrinting().create();
+				var style = gson.toJsonTree(MapStyle.get()).getAsJsonObject();
+				style.addProperty("facing", dev.diorama.Projection.facing().id());
+				Files.writeString(folder.resolve("style.json"), gson.toJson(style));
 				if (client.player != null) client.player.displayClientMessage(Component.literal("Diorama web appearance exported to " + folder), false);
 				return 1;
 			} catch (java.io.IOException | RuntimeException error) { Diorama.LOGGER.warn("Couldn't export web appearance", error); return 0; }

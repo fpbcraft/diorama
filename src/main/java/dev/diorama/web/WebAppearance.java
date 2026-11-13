@@ -14,6 +14,7 @@ final class WebAppearance {
 			var bytes = new java.io.ByteArrayOutputStream(); table.write(bytes);
 			var digest = java.security.MessageDigest.getInstance("SHA-256"); digest.update(bytes.toByteArray());
 			digest.update(new Gson().toJson(MapStyle.get()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+			digest.update(dev.diorama.Projection.facing().id().getBytes(java.nio.charset.StandardCharsets.UTF_8));
 			return java.util.HexFormat.of().formatHex(digest.digest());
 		} catch (java.io.IOException | java.security.NoSuchAlgorithmException error) { throw new IllegalStateException(error); }
 	}
@@ -28,6 +29,8 @@ final class WebAppearance {
 					if (style == null || !Double.isFinite(style.pitchDegrees()) || style.pitchDegrees() < 15 || style.pitchDegrees() > 80
 						|| style.sunTint() == null || style.shadowTint() == null || style.sunTint().length != 3 || style.shadowTint().length != 3) throw new IllegalArgumentException("Invalid web map style");
 					MapStyle.set(style);
+					var json = com.google.gson.JsonParser.parseString(Files.readString(folder.resolve("style.json"))).getAsJsonObject();
+					if (json.has("facing")) dev.diorama.Projection.setFacing(dev.diorama.Facing.of(json.get("facing").getAsString()));
 				}
 				return table;
 			} catch (java.io.IOException | RuntimeException error) { Diorama.LOGGER.warn("Couldn't load client web appearance; using shipped colours", error); }

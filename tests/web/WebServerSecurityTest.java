@@ -25,6 +25,10 @@ public final class WebServerSecurityTest {
     Files.createSymbolicLink(root.resolve("escape.json"), temp.resolve("secret.json"));
     Path history = Files.createDirectory(temp.resolve("public-history"));
     Files.writeString(history.resolve("manifest.json"), "{\"protocolVersion\":2}");
+    Files.createDirectories(history.resolve("objects/geometry"));
+    Files.write(history.resolve("objects/geometry/craft.dspr"), new byte[]{1});
+    Files.write(history.resolve("objects/geometry/legacy.bm3d"), new byte[]{1});
+    Files.write(history.resolve("private.dspr"), new byte[]{1});
     Files.createSymbolicLink(history.resolve("escape.json"), temp.resolve("secret.json"));
     Path publicAssets = Files.createDirectory(temp.resolve("published-assets"));
     Files.writeString(publicAssets.resolve("world-status.json"), "{\"dayTime\":123}");
@@ -81,6 +85,9 @@ public final class WebServerSecurityTest {
       check(generated.statusCode() == 200 && generated.body().contains("/player-history/test-embedded.js"), "virtual JAR manifest");
       check(get(client, origin + "/player-history/test-embedded.js").body().contains("fromJar"), "classpath JS");
       check(get(client, origin + "/player-history/data/manifest.json").body().contains("protocolVersion"), "public history read");
+      check(get(client, origin + "/player-history/data/objects/geometry/craft.dspr").statusCode() == 200, "archived Diorama craft read");
+      check(get(client, origin + "/player-history/data/objects/geometry/legacy.bm3d").statusCode() == 200, "archived BM3D read");
+      check(get(client, origin + "/player-history/data/private.dspr").statusCode() == 404, "geometry binary confined to archive subtree");
       check(get(client, origin + "/player-history/world-status.json").statusCode() == 200, "public publisher read");
       check(get(client, origin + "/player-history/legacy-data-123/manifest.json").statusCode() == 404, "legacy backup excluded");
       check(get(client, origin + "/player-history/data/escape.json").statusCode() == 404, "public file symlink rejected");

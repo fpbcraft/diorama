@@ -200,7 +200,9 @@ public final class WebExtensions {
 			return;
 		}
 		String mime = mime(relative);
-		if (mime == null || !(relative.endsWith(".json") || relative.endsWith(".png")
+		boolean geometry = relative.startsWith("objects/geometry/")
+			&& (relative.endsWith(".bm3d") || relative.endsWith(".dspr"));
+		if (mime == null || !(geometry || relative.endsWith(".json") || relative.endsWith(".png")
 				|| relative.endsWith(".jpg") || relative.endsWith(".webp"))) {
 			send(exchange, 404, "text/plain", "no-store", null);
 			return;
@@ -294,6 +296,7 @@ public final class WebExtensions {
 		if (name.endsWith(".png")) return "image/png";
 		if (name.endsWith(".jpg")) return "image/jpeg";
 		if (name.endsWith(".webp")) return "image/webp";
+		if (name.endsWith(".dspr") || name.endsWith(".bm3d")) return "application/octet-stream";
 		return null;
 	}
 
