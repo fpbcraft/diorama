@@ -48,6 +48,10 @@ public final class WebFogTest {
 			BufferedImage noise=ImageIO.read(new java.io.ByteArrayInputStream(WebFogAssets.read("fog-noise.png")));
 			int expected=FogNoise.pixels()[1234];int actual=noise.getRGB(1234%256,1234/256);
 			if((actual&0xffffff)!=((expected&255)<<16|(expected&0xff00)|(expected>>16&255)))throw new AssertionError("Noise channel order");
+			try(var in=WebFogAssets.class.getResourceAsStream("/diorama/web/fog-noise.png")) {
+				if(in==null)throw new AssertionError("Standalone frontend noise missing");
+				var standalone=ImageIO.read(in);for(int y=0;y<256;y++)for(int x=0;x<256;x++)if(standalone.getRGB(x,y)!=noise.getRGB(x,y))throw new AssertionError("Standalone noise differs from the server");
+			}
 			if(args.length>0) {Path out=Path.of(args[0]);Files.createDirectories(out);for(String asset:WebFogAssets.FILES)Files.write(out.resolve(asset),WebFogAssets.read(asset));}
 			System.out.println("Fog alpha coverage, overview holes, web shader and deterministic noise checks passed");
 		}finally{try(var files=Files.walk(root)){for(Path file:files.sorted(Comparator.reverseOrder()).toList())Files.delete(file);}}

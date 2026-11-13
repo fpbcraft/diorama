@@ -152,3 +152,13 @@ See [Independent web vehicles](web-vehicles.md) for the shared in-game craft ren
 The visibility button toggles clouds, Sable pins, train pins and shared waypoint sets. Preferences stay in this browser; they do not change server publication or other viewers. Vehicle pins can be hidden independently of rendered vehicles. Pin names appear on hover or focus, including tapping a pin on touch devices. The map publication timestamp sits above the bottom controls.
 
 With Player History installed, the top bar adds separate in-game day/time and season status plus an icon-only overlay selector. Seasons are published through Ecliptic Seasons' optional public API; no season is guessed for unsupported dimensions or an absent mod. The player strip aligns with the top controls and uses a second control row on narrow displays. New live chat messages appear briefly above the closed chat launcher; opening the page does not replay the chat backlog.
+
+## Standalone frontend previews
+
+The web resources include the deterministic cloud noise texture and can be exported without Minecraft or a Java runtime:
+
+```sh
+node scripts/export-web-frontend.mjs /path/to/frontend
+```
+
+Serve these assets in front of the same public map-data backend. Keep live JSON uncached and preserve the normal same-origin Player History routes. This lets a hosted frontend preview use a specific Diorama commit alongside a Player History PR without installing that frontend on every Minecraft client.
