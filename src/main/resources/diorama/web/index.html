@@ -7,6 +7,8 @@
 <style>
 	:root {
 		--bg: #15171c;
+        --map-top: max(12px, env(safe-area-inset-top));
+        --map-control-height: 44px;
 		--panel: rgba(20, 22, 27, 0.82);
 		--text: #e8eaee;
 		--muted: #a3a9b4;
@@ -17,7 +19,7 @@
 	canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 	#map { touch-action: none; cursor: grab; }
 	#map.dragging { cursor: grabbing; }
-	.bar { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; pointer-events: none; flex-wrap: wrap; }
+	.bar { position: fixed; top: var(--map-top); left: 12px; right: 12px; display: flex; gap: 8px; pointer-events: none; flex-wrap: wrap; }
 	.bar > * { pointer-events: auto; }
 	.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; backdrop-filter: blur(6px); }
 	.zoom { position: fixed; right: 12px; bottom: 12px; display: flex; flex-direction: column; overflow: hidden; }
@@ -25,7 +27,7 @@
 	.zoom button { width: 40px; height: 40px; font-size: 20px; }
 	.zoom button + button { border-top: 1px solid var(--line); }
 	.dims { display: flex; overflow: hidden; }
-	.dims button { padding: 8px 12px; color: var(--muted); }
+	.dims button { min-height:var(--map-control-height);padding: 8px 14px; color: var(--muted); }
 	.dims button.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 	.dims button + button { border-left: 1px solid var(--line); }
 	.follow { padding: 8px 12px; color: var(--muted); }
@@ -33,6 +35,21 @@
 	.where { position: fixed; left: 12px; bottom: 12px; padding: 8px 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 	.map-empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #334155; padding: 24px; text-align: center; }
 	button:focus-visible { outline: 2px solid #7aa7ff; outline-offset: -2px; }
+    .map-tools {position:fixed;top:var(--map-top);right:12px;display:flex;align-items:start;gap:8px;z-index:60;}
+    .map-icon-button {display:grid;place-items:center;box-sizing:border-box;width:44px;height:var(--map-control-height);color:var(--text);cursor:pointer;list-style:none;}
+    .map-icon-button::-webkit-details-marker{display:none;}
+    .map-menu[open]>.map-icon-button{border-color:#91d1c0;box-shadow:0 0 0 1px #91d1c066;}
+    .map-menu-body{position:absolute;right:0;top:calc(var(--map-control-height) + 10px);width:min(320px,calc(100vw - 24px));box-sizing:border-box;padding:18px;background:#141d25f5;box-shadow:0 12px 32px #0005;}
+    .map-menu-body>strong{display:block;font-size:18px;}.map-menu-body>small{display:block;color:var(--muted);margin:4px 0 12px;}
+    .map-menu-body label{display:flex;align-items:center;gap:12px;min-height:58px;border-top:1px solid var(--line);cursor:pointer;}
+    .map-setting-icon{display:grid;place-items:center;width:36px;height:36px;background:#ffffff0b;border:1px solid var(--line);border-radius:8px;flex:none;}
+    .map-menu-body input[role=switch]{appearance:none;flex:none;margin-left:auto;width:38px;height:23px;border-radius:20px;background:#626d77;position:relative;cursor:pointer;}
+    .map-menu-body input[role=switch]:before{content:'';position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:white;transition:transform .14s;}
+    .map-menu-body input[role=switch]:checked{background:#39ad83;}.map-menu-body input[role=switch]:checked:before{transform:translateX(15px);}
+    .map-menu-body input:focus-visible,.map-icon-button:focus-visible{outline:2px solid #a1e5cf;outline-offset:3px;}
+    .map-update{position:fixed;right:64px;bottom:66px;padding:5px 8px;color:var(--muted);font-size:11px;pointer-events:none;}
+    @media(max-width:760px){.map-tools{top:calc(var(--map-top) + 54px);}.map-update{bottom:62px;right:12px;}}
+    @media(prefers-reduced-motion:reduce){.map-menu-body input[role=switch]:before{transition:none;}}
 </style>
 </head>
 <body>
@@ -40,10 +57,13 @@
 <canvas id="fog" aria-hidden="true" style="pointer-events:none"></canvas>
 <div id="overlays" style="position:fixed;inset:0;pointer-events:none"></div>
 <div class="bar"><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
+<div id="map-tools" class="map-tools"></div>
+<time id="map-update" class="map-update panel" hidden></time>
 <div class="zoom panel"><button id="in" aria-label="Zoom in">+</button><button id="out" aria-label="Zoom out">&minus;</button></div>
 <div class="where panel" id="where" hidden></div>
 <div class="map-empty" id="empty"></div>
 <script type="module">
+import { MapControls } from "./map-controls.js";
 import { WebMarkers } from "./web-markers.js";
 import { coverageSources } from "./fog-coverage.js";
 import { WebFog } from "./web-fog.js";
@@ -95,10 +115,12 @@ const extensionApi = createOverlayApi({
     setFollow(false); draw(); saveHash(); return true;
   },
 });
+const controls=new MapControls(extensionApi);
+extensionApi.events.addEventListener('visibility',()=>draw());
 const publicMarkers=new WebMarkers(extensionApi,()=>map?.markerFeed);
 window.diorama = extensionApi;
 window.dispatchEvent(new Event("diorama:ready"));
-addEventListener("pagehide", () => { publicMarkers.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
+addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 
@@ -146,6 +168,10 @@ function showPlayerWhere() {
 }
 
 function pick(d, first) {
+    const updated=document.getElementById('map-update');
+    updated.hidden=!Number.isFinite(map.updated);
+    if(!updated.hidden){const date=new Date(map.updated);updated.dateTime=date.toISOString();updated.textContent='Map updated '+date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});updated.title='Latest map publication: '+date.toLocaleString();}
+
 	const switched = !dim || !d || dim.id !== d.id;
 	dim = d || null;
 	// Each tile with its version (when it was last drawn), so a browser keeps a picture until it changes.
@@ -366,7 +392,7 @@ function paint() {
 	}
 	fillState = { wanted: sharp.length, loaded, any };
 	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,
-    enabled:dim.fog!=="none",rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether",
+    enabled:dim.fog!=="none" && extensionApi.visible("clouds"),rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether",
     validCoverage:source=>source.dimension!==dim.id || present[source.zoom]?.get(source.key)===source.version},
     layout=>coverageSources(present,layout,(z,u,v,extension,version)=>tileKey(z,u,v)+extension+"?v="+version,map.tileUnits,dim.id));
 	if (player && player.dimension === dim.id) drawPlayer(sx(player.u), sy(player.v), dpr);

@@ -146,3 +146,9 @@ Dirty queues are bounded to 2,048 chunks per dimension and live snapshots to 256
 ## Independent Create and Sable vehicles
 
 See [Independent web vehicles](web-vehicles.md) for the shared in-game craft renderer, appearance-profile export, configuration and Player History integration. BlueMap and BlueMap3D are not required for this publisher.
+
+## Map controls
+
+The visibility button toggles clouds, Sable pins, train pins and shared waypoint sets. Preferences stay in this browser; they do not change server publication or other viewers. Vehicle pins can be hidden independently of rendered vehicles. Pin names appear on hover or focus, including tapping a pin on touch devices. The map publication timestamp sits above the bottom controls.
+
+With Player History installed, the top bar adds separate in-game day/time and season status plus an icon-only overlay selector. Seasons are published through Ecliptic Seasons' optional public API; no season is guessed for unsupported dimensions or an absent mod. The player strip aligns with the top controls and uses a second control row on narrow displays. New live chat messages appear briefly above the closed chat launcher; opening the page does not replay the chat backlog.
