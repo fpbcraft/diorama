@@ -21,7 +21,7 @@ try{
  await writeFile(annotation,'package org.jspecify.annotations; @java.lang.annotation.Target({java.lang.annotation.ElementType.TYPE_USE}) public @interface Nullable {}');
  const logger=join(temp,'dev/diorama/Diorama.java');await writeFile(logger,'package dev.diorama; public class Diorama { public static final Log LOGGER=new Log(); public static class Log { public void warn(String text,Object...values){System.err.println(text);} } }');
  const files=[annotation,logger];
- for(const name of ['WebPins','WebWaypoints']){const out=join(source,name+'.java');await copyFile(join(root,'src/main/java/dev/diorama/web',name+'.java'),out);files.push(out);}
+ for(const name of ['WebPins','WebWaypoints','WebWaypointIcons']){const out=join(source,name+'.java');await copyFile(join(root,'src/main/java/dev/diorama/web',name+'.java'),out);files.push(out);}
  for(const [input,output]of [['src/main/java/dev/diorama/render/PinArt.java',join(render,'PinArt.java')],['tests/web/WebWaypointsTest.java',join(source,'WebWaypointsTest.java')]]){await copyFile(join(root,input),output);files.push(output);}
  await cp(join(root,'src/main/resources/assets'),join(temp,'assets'),{recursive:true});
  const bin=process.env.JAVA_HOME?join(process.env.JAVA_HOME,'bin'):'/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home/bin';

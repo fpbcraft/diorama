@@ -62,7 +62,7 @@ final class WebWaypoints implements AutoCloseable {
 		if(markers.equals(owners.getOrDefault(owner,List.of())))return false;
 		if(markers.isEmpty())owners.remove(owner);else owners.put(owner,List.copyOf(markers));revision++;return true;
 	}
-	void icons(Path file){icons=WebPins.icons(file);}
+	void icons(Path file){icons=WebWaypointIcons.load(file);}
 	void start(){schedule();}
 	private void schedule(){if(!closed&&queued.compareAndSet(false,true))writer.execute(this::flush);}
 	private void flush(){

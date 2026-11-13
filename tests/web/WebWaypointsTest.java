@@ -44,7 +44,7 @@ public final class WebWaypointsTest {
 			waitFor(web.resolve("markers.json"),"Other owner pin",true);restored.close();
 			int[] pixels=new int[121];java.util.Arrays.fill(pixels,0xffff00ff);
 			Path iconFile=world.resolve("waypoint-icons.json");Files.writeString(iconFile,new com.google.gson.Gson().toJson(Map.of("example:station",pixels,"example:invalid",new int[3])));
-			var icons=WebPins.icons(iconFile);if(icons.size()!=1||!icons.containsKey("example:station"))throw new AssertionError("Exported icon bounds ignored");
+			var icons=WebWaypointIcons.load(iconFile);if(icons.size()!=1||!icons.containsKey("example:station"))throw new AssertionError("Exported icon bounds ignored");
 			WebWaypoints custom=new WebWaypoints(world,web,clock::get);custom.icons(iconFile);custom.start();
 			icon="example:station";clock.set(7000);custom.receive(a,packet("Custom station",0xff46a758));
 			String published=waitFor(web.resolve("markers.json"),"Custom station",true);
