@@ -31,24 +31,27 @@
 	.follow { padding: 8px 12px; color: var(--muted); }
 	.follow.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 	.where { position: fixed; left: 12px; bottom: 12px; padding: 8px 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-	.map-empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: var(--muted); padding: 24px; text-align: center; }
+	.map-empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #334155; padding: 24px; text-align: center; }
 	button:focus-visible { outline: 2px solid #7aa7ff; outline-offset: -2px; }
 </style>
 </head>
 <body>
 <canvas id="map" aria-label="Map"></canvas>
+<canvas id="fog" aria-hidden="true" style="pointer-events:none"></canvas>
 <div id="overlays" style="position:fixed;inset:0;pointer-events:none"></div>
 <div class="bar"><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
 <div class="zoom panel"><button id="in" aria-label="Zoom in">+</button><button id="out" aria-label="Zoom out">&minus;</button></div>
 <div class="where panel" id="where" hidden></div>
 <div class="map-empty" id="empty"></div>
 <script type="module">
+import { WebFog } from "./web-fog.js";
 import { createOverlayApi, projectWorld } from "./overlay-api.js";
 "use strict";
 // Behind a proxy at a folder of its own (example.com/map), the page's files are inside that folder.
 if (!location.pathname.endsWith("/") && !/\.[a-z]+$/i.test(location.pathname)) location.replace(location.pathname + "/" + location.search + location.hash);
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
+const fog = new WebFog(document.getElementById("fog"));
 let map = null;          // map.json
 let dim = null;          // the dimension shown
 let present = [];        // per zoom, a Map of "u,v" -> the tile's version
@@ -92,7 +95,7 @@ const extensionApi = createOverlayApi({
 });
 window.diorama = extensionApi;
 window.dispatchEvent(new Event("diorama:ready"));
-addEventListener("pagehide", () => extensionApi.dispose(), { once: true });
+addEventListener("pagehide", () => { fog.dispose(); extensionApi.dispose(); }, { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 
@@ -301,7 +304,10 @@ function paint() {
 	ctx.setTransform(1, 0, 0, 1, 0, 0);
 	ctx.fillStyle = map ? map.background : "#15171c";
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
-	if (!map || !dim) return;
+	if (!map || !dim) {
+		fog.update({u:0,v:0,scale:1,width:w,height:h,dpr,dimension:"",coverage:false,rounded:true,smoke:false},[]);
+		return;
+	}
 	const z = zoomFor(view.scale);
 	const left = view.u - w / 2 / view.scale, top = view.v - h / 2 / view.scale;
 	// Two levels coarser first: a handful of pictures fill the screen at once, blurred, while the
@@ -325,6 +331,7 @@ function paint() {
 	const k = view.scale * dpr;
 	const sx = m => Math.round((m - left) * k), sy = m => Math.round((m - top) * k);
 	let loaded = 0, any = 0;
+	const fogSources = [];
 	for (let level = coarse; level >= z; level--) {
 		const units = tileUnits(level);
 		// Shrunk pictures averaged with the browser's best filter; stretched ones (closer in than the
@@ -338,9 +345,12 @@ function paint() {
 			if (level === z) loaded++;
 			const x0 = sx(u * units), x1 = sx((u + 1) * units), y0 = sy(v * units), y1 = sy((v + 1) * units);
 			ctx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
+			const ver = present[level]?.get(u + "," + v);
+			fogSources.push({u:u*units,v:v*units,units,mask:tileKey(level,u,v)+".fog.png?v="+ver});
 		}
 	}
 	fillState = { wanted: sharp.length, loaded, any };
+	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether"},fogSources);
 	if (player && player.dimension === dim.id) drawPlayer(sx(player.u), sy(player.v), dpr);
 }
 

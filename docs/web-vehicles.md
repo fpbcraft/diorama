@@ -35,10 +35,10 @@ Craft images record their pitch and facing. Historical images from a different p
 ## Load and storage bounds
 
 - Up to 64 captured vehicles globally, with a 262,144-cell limit per copied grid.
-- Transform snapshots every 10 ticks; at most one grid copy per 100 ms, shared across dimensions. Block refreshes coalesce and occur at least periodically (30 seconds when capacity permits).
-- One low-priority publication worker, retaining the previous image while a replacement is prepared. Image and shadow tracing each back off in proportion to their own work; this is a scheduling policy, not a measured server-load guarantee.
+- Transform snapshots every two ticks; at most one grid copy per 100 ms, shared across dimensions. Block refreshes coalesce and occur at least periodically (30 seconds when capacity permits).
+- A low-priority image baker and a separate pose publisher retain the previous image while a replacement is prepared. Expensive image work cannot stall the 100 ms pose publication loop. Image tracing backs off in proportion to its work; this is a scheduling policy, not a measured server-load guarantee.
 - Half-pixel rotation tolerance and four-block height tolerance match the in-game craft painter's rebake rules. Translation does not rebake the craft image.
-- Ground shadows use at most eight published terrain tiles. Where ground data is absent or the shadow area exceeds that bound, no shadow is fabricated.
+- The browser projects the shared sun silhouette onto up to eight visible terrain tiles, using the native four coverage samples, sun contribution, shaded ground colours, and depth. Shadows never translate a pre-coloured image of the ground. Missing ground data yields no shadow. Ground textures and silhouettes load through two bounded requests, with eight ground tiles, sixteen casting vehicles and a 32 MiB silhouette texture budget.
 - Superseded live images are removed after a 60-second grace period. Player History keeps its own durable geometry copies and applies its existing retention policy.
 - Browser sprite loads have two concurrent requests, a 128 MiB decoded-resource budget and at most 32 cached images including replacements. Textures/materials are reused between animation frames; missing resources retain an accessible marker.
 
@@ -46,11 +46,11 @@ When the existing Player History BlueMap bridge is installed, it retains ownersh
 
 ## Publication and API
 
-`map.json` advertises a relative `vehicleFeed`; the browser API exposes `vehicleFeed()`. Resolve it relative to the map page, including behind a subpath proxy. The feed is `assets/diorama-vehicles/scene.json`, with `generatedAt`, `intervalMs`, `format` and bounded `objects`. Mesh and atlas URLs are relative to the map root. It is public map information and contains no chat/session credentials.
+`map.json` advertises a relative `vehicleFeed`; the browser API exposes `vehicleFeed()`. Resolve it relative to the map page, including behind a subpath proxy. The feed is `assets/diorama-vehicles/scene.json`, with `generatedAt`, `intervalMs`, `format` and bounded `objects`. An optional `caster` URL supplies the native sun silhouette. The viewer ignores out-of-order publications, preserves its interpolation clock for duplicate captures, and starts new transitions from the displayed position. Teleports and dimension changes snap, and reduced motion disables interpolation. Mesh and atlas URLs are relative to the map root. It is public map information and contains no chat/session credentials.
 
 Each craft uses a content-addressed `.dspr` plus a PNG atlas. DSPR v2 starts with a 64-byte little-endian header: ASCII `DSPR`, uint32 version, width and height; float64 projected U/V offsets, pitch sine/cosine; uint32 facing and pixels per unit; eight reserved zero bytes. The remainder is zlib-compressed Float32 camera depth relative to the craft centre, row-major, with NaN for no opaque hit. The reader also accepts the initial 32-byte v1 header. Atlas pixels retain the tracer's RGBA values.
 
-`.ground` files are compressed internal terrain-lighting data for shadows, not an HTTP mount of world data. The embedded handler serves scene JSON, DSPR and PNG through its existing root containment rules.
+`.ground` files contain only published terrain pixels: surface height, camera depth, sun contribution and sunless colour. The embedded handler serves them and content-addressed `.dshd` sun silhouettes through its existing web-root containment rules. No world directory is mounted. A DSHD v1 silhouette has a 128-byte little-endian header followed by zlib-compressed float32 sun reach; the header records dimensions, texel density, sun basis, grid offset from the craft centre and relative bounds. It is independent of translation.
 
 `dev.diorama.api.WebVehicleScene.latest()` exposes an immutable publication snapshot for integrations. It contains published asset paths and scalar transforms, with no live entity/world references. Consumers must reject stale snapshots and must not re-enumerate the source mods. Player History's archive worker consumes this snapshot and cancels obsolete session work on shutdown.
 
@@ -64,3 +64,22 @@ JAVA_HOME=/path/to/jdk25 ./gradlew :1.21.1-neoforge:build
 ```
 
 The isolated vehicle check tests lossless pixels/depth, stable content identities, and optional API calls with client-only classes deliberately absent. It does not start Minecraft. Validate the final JARs on a dedicated modded server without BlueMap/BlueMap3D, including train assembly, Sable edits/rotation, filled copycats, unload/despawn, restart, terrain occlusion and shadows. Compare the same craft in-game and on the web with a matching appearance profile before declaring exact visual parity.
+
+## Provider lifecycle and parity
+
+Sable presence comes from its container, including ships with unavailable or empty plot bounds. Previously captured blocks and the last usable pose remain available while its plot chunks sleep. Disassembly/removal from the container removes the publication. A dormant ship never captured during this server session cannot be reconstructed from unloaded chunks; it must be observed once. No chunks are force-loaded.
+
+Create trains are enumerated from `Create.RAILWAYS.trains`. Geometry is read through the same contraption/copycat reader, with a cold-start fallback to `Carriage.write()` and `Contraption.fromNBT()`. Position and orientation follow the railway manager's dimensional anchors, with stable per-dimension/train/carriage identities. Loaded carriage entities are excluded from the ordinary contraption pass. Removing a train or shortening its carriage list removes those objects. This is the same registry/anchor approach used by the FPBCRAFT BlueMap3D provider.
+
+| Behaviour | Independent Diorama path |
+| --- | --- |
+| Live positions | Two-tick capture, independent 100 ms publication, continuous viewer interpolation |
+| Sable dormant plots | Cached geometry remains while the container reports the ship |
+| Unloaded train carriages | Railway anchors plus saved contraption geometry |
+| Terrain occlusion | Per-pixel native camera depth; requires `web-map-depth=true` and rendered sidecars |
+| Moving shadows | Browser projects the native silhouette onto current terrain each frame |
+| Player/object replay | Existing Player History archive; Create train provider receives empty removal snapshots too |
+| Vehicle appearance | Native craft tracer; matching client appearance export required for custom colours |
+| Wheel/propeller subpart animation | Native craft sprites do not carry BlueMap3D's animated mesh subparts; not claimed as parity |
+
+These implementation paths and fixtures do not replace dedicated-server acceptance. Verify unloaded/reloaded ships, cold trains, sloped/portal tracks, disassembly, copycats and changing roof/ground heights with the final JARs. In-game screenshot parity and the installed Create/Sable API bindings remain acceptance checks.

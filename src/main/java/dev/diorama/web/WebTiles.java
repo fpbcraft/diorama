@@ -45,7 +45,9 @@ final class WebTiles {
 	 */
 	static long write(Path file, int[] abgr) throws IOException {
 		BufferedImage image = image(abgr);
-		return image != null ? writeJpeg(file, image) : delete(file);
+		if (image == null) return delete(file);
+		WebCoverage.write(file, abgr);
+		return writeJpeg(file, image);
 	}
 
 	/** The same tile as a JPEG in memory, for a map that keeps no pictures of its own; null if no pixel is known. */
@@ -127,11 +129,14 @@ final class WebTiles {
 				image.setRGB(ox, oy + y, half, 1, shrunk, 0, half);
 			}
 		}
-		return image == null ? delete(out) : writeJpeg(out, image);
+		if (image == null) return delete(out);
+		WebCoverage.shrink(out, children);
+		return writeJpeg(out, image);
 	}
 
 	private static long delete(Path file) throws IOException {
 		Files.deleteIfExists(file);
+		Files.deleteIfExists(WebCoverage.file(file));
 		return 0;
 	}
 

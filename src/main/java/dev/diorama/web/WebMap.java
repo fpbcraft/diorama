@@ -205,6 +205,7 @@ public final class WebMap {
 	private boolean start() {
 		try {
 			Files.createDirectories(this.folder);
+			for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
 			for (String asset : new String[] {"index.html", "overlay-api.js"}) {
 				try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
 					if (page != null) {
@@ -581,6 +582,7 @@ public final class WebMap {
 			.append(",\"facing\":").append(Projection.facing().turns)
 			.append(",\"depth\":").append(this.settings.depth())
 			.append(",\"vehicleFeed\":\"assets/diorama-vehicles/scene.json\"")
+			.append(",\"fogCoverage\":true,\"roundedFog\":").append(dev.diorama.MapStyle.get().roundedFog())
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())
 			.append(",\"dimensions\":[");
@@ -1215,6 +1217,7 @@ public final class WebMap {
 
 		void json(StringBuilder json) {
 			json.append("{\"id\":\"").append(this.id).append("\",\"folder\":\"").append(this.folder.getFileName())
+				.append("\",\"fog\":\"").append(this.level.dimensionType().hasCeiling() ? "smoke" : "fog")
 				.append("\",\"zoomLevels\":").append(Math.max(1, this.zoomLevels)).append(",\"versions\":true,\"tiles\":[");
 			for (int z = 0; z < Math.max(1, this.zoomLevels); z++) {
 				if (z > 0) {

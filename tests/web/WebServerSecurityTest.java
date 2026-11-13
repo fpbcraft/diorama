@@ -15,9 +15,13 @@ public final class WebServerSecurityTest {
     Files.writeString(root.resolve("presence.json"), "{}");
     Files.writeString(root.resolve("test.css"), "body{}");
     Files.write(root.resolve("head.png"), new byte[] {1});
+    Files.write(root.resolve("tile.fog.png"), new byte[] {1});
+    Files.writeString(root.resolve("fog.fsh"), "#version 300 es");
     Files.write(root.resolve("tile.jpg"), new byte[] {1});
     Files.write(root.resolve("tile.depth"), new byte[] {1});
     Files.write(root.resolve("craft.dspr"), new byte[] {1});
+    Files.write(root.resolve("craft.dshd"),new byte[]{1});
+    Files.write(root.resolve("tile.ground"),new byte[]{1});
     Files.writeString(root.resolve("scene.json"), "{}");
     Files.createDirectories(root.resolve("modules/v1"));
     Files.writeString(root.resolve("modules/v1/live.js"), "export {};");
@@ -62,7 +66,11 @@ public final class WebServerSecurityTest {
       check(get(client, origin + "/overlay-api.js").headers().firstValue("Content-Type").orElse("").startsWith("text/javascript"), "JS MIME");
       check(get(client, origin + "/test.css").statusCode() == 200, "CSS");
       check(get(client, origin + "/head.png").statusCode() == 200, "PNG");
+      check(get(client, origin + "/fog.fsh").headers().firstValue("Content-Type").orElse("").startsWith("text/plain"), "fog shader MIME");
+      check(get(client, origin + "/tile.fog.png?v=2").headers().firstValue("Cache-Control").orElse("").contains("immutable"), "versioned fog coverage cache");
       check(get(client, origin + "/craft.dspr").statusCode() == 200, "craft sprite MIME route");
+      check(get(client,origin+"/craft.dshd").statusCode()==200,"sun silhouette route");
+      check(get(client,origin+"/tile.ground?v=2").headers().firstValue("Cache-Control").orElse("").contains("immutable"),"versioned public ground cache");
       check(get(client, origin + "/scene.json").headers().firstValue("Cache-Control").orElse("").equals("no-store"), "vehicle feed freshness");
       var depth = get(client, origin + "/tile.depth?v=1");
       check(depth.statusCode() == 200 && depth.headers().firstValue("Content-Type").orElse("").startsWith("application/octet-stream"), "depth MIME");

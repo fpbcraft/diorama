@@ -26,6 +26,9 @@ public interface Body {
 		return 0;
 	}
 
+	/** False for a resident dormant structure whose backing plot is currently unavailable. */
+	default boolean geometryAvailable() { return true; }
+
 	/** Its blocks as they are now, or null if they can't be read. */
 	@Nullable Blocks read(Looks looks);
 
