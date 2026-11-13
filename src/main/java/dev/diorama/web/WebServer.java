@@ -89,7 +89,7 @@ final class WebServer {
 			Path file = root.resolve(path.substring(1)).normalize();
 			// Only public map assets within the real map root.
 			String name = file.getFileName() == null ? "" : file.getFileName().toString();
-			String type = name.endsWith(".jpg") ? "image/jpeg" : name.endsWith(".json") ? "application/json" : name.endsWith(".html") ? "text/html; charset=utf-8" : name.endsWith(".js") ? "text/javascript; charset=utf-8" : name.endsWith(".css") ? "text/css; charset=utf-8" : name.endsWith(".png") ? "image/png" : name.endsWith(".depth") ? "application/octet-stream" : null;
+			String type = name.endsWith(".jpg") ? "image/jpeg" : name.endsWith(".json") ? "application/json" : name.endsWith(".html") ? "text/html; charset=utf-8" : name.endsWith(".js") ? "text/javascript; charset=utf-8" : name.endsWith(".css") ? "text/css; charset=utf-8" : name.endsWith(".png") ? "image/png" : (name.endsWith(".depth") || name.endsWith(".dspr")) ? "application/octet-stream" : null;
 			if (!file.startsWith(root) || type == null || !Files.isRegularFile(file) || !file.toRealPath().startsWith(root.toRealPath())) {
 				// Outside the folder, also through a link inside it.
 				send(exchange, 404, "text/plain", null);
@@ -102,9 +102,9 @@ final class WebServer {
 			// A picture asked for with its version (the page's way) never changes under that address: the
 			// browser keeps it. Anything else may change, and is checked each time (a 304 if not).
 			String query = exchange.getRequestURI().getRawQuery();
-			exchange.getResponseHeaders().set("Cache-Control", (type.equals("image/jpeg") || name.endsWith(".depth")) && query != null && query.startsWith("v=")
+			exchange.getResponseHeaders().set("Cache-Control", (type.equals("image/jpeg") || name.endsWith(".depth") || name.endsWith(".dspr")) && query != null && query.startsWith("v=")
 				? "public, max-age=31536000, immutable" : "no-cache");
-			boolean live = name.equals("live.json") || name.equals("presence.json") || name.equals("player.json")
+			boolean live = name.equals("scene.json") || name.equals("live.json") || name.equals("presence.json") || name.equals("player.json")
 				|| name.equals("server-overlays.json") || name.equals("world-status.json");
 			if (live) exchange.getResponseHeaders().set("Cache-Control", "no-store");
 			if (name.endsWith(".js") && root.relativize(file).toString().replace('\\', '/').matches("modules/[A-Za-z0-9.+-]+/.+\\.js")) {

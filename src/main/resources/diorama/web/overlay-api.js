@@ -15,7 +15,7 @@ export const screenPosition = (point, state) => {
 };
 
 /** A composited overlay frame never calls the terrain renderer or its tile loader. */
-export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [] }) => {
+export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [], vehicleFeed = () => undefined }) => {
   const events = new EventTarget();
   const overlays = new Map();
   const canvas = document.createElement("canvas");
@@ -50,6 +50,7 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
     navigate,
     setDimension,
     depthTiles,
+    vehicleFeed,
     registerOverlay(id, overlay) {
       if (disposed || overlays.has(id)) throw new Error("Overlay is disposed or already registered: " + id);
       overlays.set(id, overlay);

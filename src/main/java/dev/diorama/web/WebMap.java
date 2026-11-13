@@ -88,6 +88,7 @@ public final class WebMap {
 	private final MinecraftServer server;
 	private final WebSettings settings;
 	private final LiveTerrain live;
+	private dev.diorama.web.vehicles.WebVehicles vehicles;
 	private final VanillaTable table;
 	private final Path modsFolder;
 	final Path folder;
@@ -130,7 +131,7 @@ public final class WebMap {
 			Diorama.LOGGER.info("Diorama's web map is off (web-map in config/{})", WebSettings.FILE);
 			return;
 		}
-		VanillaTable table = VanillaTable.shipped();
+		VanillaTable table = WebAppearance.load(configFolder);
 		if (table == null) {
 			Diorama.LOGGER.warn("Diorama's web map can't start: this jar has no vanilla colour table");
 			return;
@@ -138,6 +139,8 @@ public final class WebMap {
 		WebMap map = new WebMap(server, settings, table, modsFolder);
 		if (map.start()) {
 			running = map;
+			if (settings.vehicles()) map.vehicles = new dev.diorama.web.vehicles.WebVehicles(map.folder, table, modsFolder,
+				() -> !map.stopping && !map.paused && !map.serverBehind() && !server.isCurrentlySaving());
 		}
 	}
 
@@ -146,6 +149,7 @@ public final class WebMap {
 		WebMap map = running;
 		running = null;
 		if (map != null) {
+			if (map.vehicles != null) map.vehicles.close();
 			map.stop();
 		}
 	}
@@ -160,6 +164,7 @@ public final class WebMap {
 		WebMap map = running;
 		if (map == null || map.stopping || map.paused || map.serverBehind() || map.server.isCurrentlySaving()) return;
 		try {
+			if (map.vehicles != null) map.vehicles.tick(level);
 			if (map.live.capture(level, map.settings.everyChunk())) synchronized (map.wake) { map.wake.notifyAll(); }
 		} catch (RuntimeException | LinkageError error) {
 			Diorama.LOGGER.warn("Couldn't capture a live web-map chunk; saved-world rendering remains available", error);
@@ -320,6 +325,12 @@ public final class WebMap {
 			TableLooks looks = new TableLooks(this.table, jars);
 			Diorama.LOGGER.info("Web map colours: vanilla table of {}; block models from {} mod jars", this.table.describe(), jars.jarCount());
 			Properties progress = this.loadProgress();
+			String appearance = WebAppearance.fingerprint(this.table);
+			String previousAppearance = progress.getProperty("appearance");
+			if (previousAppearance != null ? !previousAppearance.equals(appearance) : this.table != VanillaTable.shipped()) {
+				this.redrawAll.set(true); this.forceAll.set(true);
+				Diorama.LOGGER.info("Web appearance changed: refreshing terrain to match the client profile");
+			} else if (previousAppearance == null) progress.setProperty("appearance", appearance);
 			// Drawn under another share-land: land the map shows now may be missing, or land it
 			// no longer shows still drawn. Everything again.
 			String land = this.settings.everyChunk() ? "generated" : "visited";
@@ -396,6 +407,7 @@ public final class WebMap {
 				if (all && complete && !this.stopping) {
 					// Only now is the map drawn under this share-land: a redraw cut short starts over.
 					progress.setProperty("share-land", land);
+					progress.setProperty("appearance", appearance);
 					this.saveProgress(progress);
 				} else if (!complete && !this.stopping) {
 					// Retry the full map, not the partial in-memory snapshot, even when
@@ -568,6 +580,7 @@ public final class WebMap {
 			.append(",\"cos\":").append(String.format(Locale.ROOT, "%.6f", Projection.cos()))
 			.append(",\"facing\":").append(Projection.facing().turns)
 			.append(",\"depth\":").append(this.settings.depth())
+			.append(",\"vehicleFeed\":\"assets/diorama-vehicles/scene.json\"")
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())
 			.append(",\"dimensions\":[");
@@ -973,11 +986,16 @@ public final class WebMap {
 							var surface = TileBaker.surface(new TileKey(TileKey.SURFACE, u, v), 0, this.source, looks, false,
 								0, 0, Projection.TILE_PIXELS, Projection.TILE_PIXELS);
 							WebDepth.write(depthFile, surface);
+							dev.diorama.web.vehicles.VehicleGround.write(depthFile.resolveSibling(u + "_" + v + ".ground"), surface);
 						} catch (RuntimeException | LinkageError | StackOverflowError error) {
 							Files.deleteIfExists(depthFile);
+							Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));
 							Diorama.LOGGER.warn("Couldn't trace terrain depth for {} {},{}; publishing colour only", this.id, u, v, error);
 						}
-					} else Files.deleteIfExists(depthFile);
+					} else {
+						Files.deleteIfExists(depthFile);
+						Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));
+					}
 					long size = WebTiles.write(WebTiles.file(this.folder, 0, u, v), pixels);
 					if (size > 0) this.tiles[0].add(tile);
 					else this.tiles[0].remove(tile);

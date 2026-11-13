@@ -99,7 +99,7 @@ public final class CraftShadow {
 	 * The craft turned by {@code linear} (the world offsets of one step along its grid's x, y and
 	 * z) as the style's sun sees it, or null if the turn can't be undone. Any thread.
 	 */
-	public static @Nullable Silhouette silhouette(CraftBlocks blocks, double[] linear, BlockLooks looks, MapStyle style) {
+	public static @Nullable Silhouette silhouette(CraftBlocks blocks, double[] linear, Looks looks, MapStyle style) {
 		double[] inv = GridRay.invert(linear);
 		if (inv == null) {
 			return null;
@@ -221,14 +221,14 @@ public final class CraftShadow {
 	/** Walks lines along the sun's direction through the craft's grid. */
 	private static final class Walker {
 		private final CraftBlocks blocks;
-		private final BlockLooks looks;
+		private final Looks looks;
 		private final double[] inv;
 		private final double rx;
 		private final double ry;
 		private final double rz;
 		private final GridRay ray;
 
-		Walker(CraftBlocks blocks, BlockLooks looks, double[] inv, double[] s) {
+		Walker(CraftBlocks blocks, Looks looks, double[] inv, double[] s) {
 			this.blocks = blocks;
 			this.looks = looks;
 			this.inv = inv;
@@ -254,7 +254,7 @@ public final class CraftShadow {
 			do {
 				int id = b.look(this.looks, CraftBlocks.index(b.sizeX, b.sizeZ, ray.cell[0], ray.cell[1], ray.cell[2]));
 				// Glass and plants too, so the shadow keeps the craft's outline.
-				if (id != 0 && id < this.looks.kind.length && this.looks.kind[id] != BlockLooks.AIR && ray.enter < ray.exit()) {
+				if (id != 0 && id < this.looks.kind.length && this.looks.kind[id] != Looks.AIR && ray.enter < ray.exit()) {
 					reach = (float) ray.exit();
 				}
 			} while (ray.next());

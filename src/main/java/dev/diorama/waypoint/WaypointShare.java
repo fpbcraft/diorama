@@ -168,6 +168,7 @@ public final class WaypointShare {
 	 * Built with Brigadier alone, so they go in either loader's client commands.
 	 */
 	public static <S> void register(CommandDispatcher<S> dispatcher) {
+		dev.diorama.craft.CraftAppearanceExport.register(dispatcher);
 		dispatcher.register(LiteralArgumentBuilder.<S>literal("diorama")
 			.then(LiteralArgumentBuilder.<S>literal("waypoint")
 				.then(LiteralArgumentBuilder.<S>literal("list")

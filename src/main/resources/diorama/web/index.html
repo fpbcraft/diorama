@@ -69,6 +69,7 @@ const extensionApi = createOverlayApi({
     if (dim?.id !== id) { pick(next, false); buildDims(); saveHash(); }
     return true;
   },
+  vehicleFeed: () => map?.vehicleFeed ? new URL(map.vehicleFeed, location.href).href : undefined,
   depthTiles: () => {
     if (!map?.depth || !dim) return [];
     const width = canvas.clientWidth / view.scale, height = canvas.clientHeight / view.scale;

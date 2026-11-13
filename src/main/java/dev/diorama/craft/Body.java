@@ -1,6 +1,6 @@
 package dev.diorama.craft;
 
-import dev.diorama.bake.BlockLooks;
+import dev.diorama.bake.Looks;
 import dev.diorama.bake.CraftBlocks;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
@@ -27,7 +27,7 @@ public interface Body {
 	}
 
 	/** Its blocks as they are now, or null if they can't be read. */
-	@Nullable Blocks read(BlockLooks looks);
+	@Nullable Blocks read(Looks looks);
 
 	/**
 	 * Where it is this frame: writes the world position of the grid corner {@code min} (the

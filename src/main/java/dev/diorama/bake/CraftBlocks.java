@@ -44,8 +44,14 @@ public final class CraftBlocks {
 		return this.states.length;
 	}
 
+	/** Compares copied data without resolving models or textures on the server tick. */
+	public boolean sameBlocks(CraftBlocks other) {
+		return this.sizeX == other.sizeX && this.sizeY == other.sizeY && this.sizeZ == other.sizeZ
+			&& java.util.Arrays.equals(this.states, other.states) && this.copycats.equals(other.copycats);
+	}
+
 	/** The look to draw a cell with: its state, or a filled copycat's look. */
-	int look(BlockLooks looks, int index) {
+	int look(Looks looks, int index) {
 		int id = this.states[index];
 		if (id == 0 || this.copycats.isEmpty()) {
 			return looks.ensure(id);
@@ -74,7 +80,7 @@ public final class CraftBlocks {
 	}
 
 	/** Whether it would draw the same as {@code other}: states that differ only in ways that don't show are the same here. */
-	public boolean looksLike(CraftBlocks other, BlockLooks looks) {
+	public boolean looksLike(CraftBlocks other, Looks looks) {
 		if (this.sizeX != other.sizeX || this.sizeY != other.sizeY || this.sizeZ != other.sizeZ || !this.copycats.equals(other.copycats)) {
 			return false;
 		}
