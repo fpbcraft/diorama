@@ -503,6 +503,8 @@ public final class WaypointStore {
 	}
 
 	/** The shown waypoints and the other maps' together, for changes that apply to all of them. */
+	public List<Waypoint> webWaypoints() { return this.everyWaypoint().stream().filter(w->w.webVisible&&!w.deleted&&w.kind!=Waypoint.Kind.TEMPORARY).limit(64).toList(); }
+
 	private List<Waypoint> everyWaypoint() {
 		List<Waypoint> all = new ArrayList<>(this.waypoints);
 		all.addAll(this.elsewhere);

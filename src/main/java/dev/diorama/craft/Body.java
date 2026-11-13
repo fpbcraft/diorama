@@ -13,6 +13,10 @@ public interface Body {
 	/** The same from session to session, so a parked craft is still known when it comes back. */
 	UUID id();
 
+	/** A player-assigned name, or empty for an unnamed structure. */
+	default String label() { return ""; }
+	default String markerGroup() { return id().toString(); }
+
 	/** Transient add-on crafts disappear when no longer client-visible. */
 	default boolean persistWhenUnloaded() {
 		return true;

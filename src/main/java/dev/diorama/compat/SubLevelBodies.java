@@ -42,6 +42,7 @@ public final class SubLevelBodies {
 	private static OptionalCall inBounds;
 	private static OptionalCall all;
 	private static OptionalCall uniqueId;
+	private static OptionalCall shipName;
 	private static OptionalCall removed;
 	private static OptionalCall plot;
 	private static OptionalCall logicalPose;
@@ -78,6 +79,7 @@ public final class SubLevelBodies {
 				inBounds = OptionalCall.virtual(containers,"inBounds",boolean.class,int.class,int.class);
 				all = OptionalCall.virtual(containers,"getAllSubLevels",List.class);
 				uniqueId = OptionalCall.virtual(ship,"getUniqueId",UUID.class);
+				try { shipName=OptionalCall.virtual(ship,"getName",String.class); } catch(NoSuchMethodException ignored) {}
 				removed = OptionalCall.virtual(ship,"isRemoved",boolean.class);
 				plot = OptionalCall.virtual(ship,"getPlot",Class.forName("dev.ryanhcode.sable.sublevel.plot.LevelPlot"));
 				logicalPose = OptionalCall.virtual(ship,"logicalPose",Class.forName("dev.ryanhcode.sable.companion.math.Pose3d"));
@@ -225,6 +227,10 @@ public final class SubLevelBodies {
 
 	/** {@code box} is the ship's blocks in its plot, min x y z then max x y z; {@code edits} its plot's count when it was listed. */
 	private record Ship(UUID id, Object ship, Level level, int[] box, int edits) implements Body {
+		@Override public String label() {
+			try { Object name=shipName==null?null:shipName.invoke(ship);return name instanceof String text?text:""; }
+			catch(ReflectiveOperationException|RuntimeException ignored){return "";}
+		}
 		@Override public boolean geometryAvailable() { return box[0]<=box[3] && box[1]<=box[4] && box[2]<=box[5]; }
 		@Override
 		public boolean persistWhenUnloaded() {

@@ -70,6 +70,8 @@ public final class Waypoint {
 	public String dimension = "minecraft:overworld";
 	public int color = PALETTE[0];
 	public boolean visible = true;
+	/** Explicit public-web opt-in; ordinary map visibility never shares a private waypoint. */
+	public boolean webVisible;
 	/** The custom folder it's in, or empty for its dimension's own folder. See {@link WaypointStore#folderKey}. */
 	public String folder = "";
 	public Kind kind = Kind.MANUAL;

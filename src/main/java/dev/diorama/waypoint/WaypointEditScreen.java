@@ -62,6 +62,7 @@ public final class WaypointEditScreen extends Screen {
 	private @Nullable Button teleport;
 	private int color;
 	private boolean visible;
+	private boolean webVisible;
 	private EditBox hex;
 	private int swatchX;
 	private int swatchY;
@@ -90,6 +91,7 @@ public final class WaypointEditScreen extends Screen {
 		this.isNew = isNew;
 		this.color = waypoint.color;
 		this.visible = waypoint.visible;
+		this.webVisible = waypoint.webVisible;
 		this.icon = waypoint.icon == null ? "" : waypoint.icon;
 		WaypointStore store = WaypointStore.get();
 		String known = store == null ? null : store.folderName(waypoint.folder);
@@ -102,7 +104,7 @@ public final class WaypointEditScreen extends Screen {
 	}
 
 	private int top() {
-		return this.height / 2 - 92;
+		return this.height / 2 - 104;
 	}
 
 	@Override
@@ -158,6 +160,15 @@ public final class WaypointEditScreen extends Screen {
 		});
 		*///?}
 
+		//? if >=1.21 {
+		this.addRenderableWidget(Checkbox.builder(Component.literal("Show on web map (public)"),this.font)
+			.pos(left,top+180).selected(this.webVisible).onValueChange((box,value)->this.webVisible=value).build());
+		//?} else {
+		/*this.addRenderableWidget(new Checkbox(left,top+180,200,20,Component.literal("Show on web map (public)"),this.webVisible) {
+			@Override public void onPress(){super.onPress();WaypointEditScreen.this.webVisible=this.selected();}
+		});
+		*///?}
+
 		// What to do with this place, under its preview. A new waypoint has none until it's saved.
 		int previewLeft = left + PREVIEW_LEFT;
 		int previewWidth = WIDTH - PREVIEW_LEFT;
@@ -178,9 +189,9 @@ public final class WaypointEditScreen extends Screen {
 		// The footer: only the two ways out, Save then Cancel, as vanilla orders them.
 		int half = (WIDTH - 4) / 2;
 		this.save = this.addRenderableWidget(Button.builder(Component.translatable("diorama.waypoint.save"), b -> this.save())
-			.bounds(left, top + 192, half, 20).build());
+			.bounds(left, top + 216, half, 20).build());
 		this.addRenderableWidget(Button.builder(CommonComponents.GUI_CANCEL, b -> this.onClose())
-			.bounds(left + WIDTH - half, top + 192, half, 20).build());
+			.bounds(left + WIDTH - half, top + 216, half, 20).build());
 		this.validate();
 		this.setInitialFocus(this.name);
 	}
@@ -731,6 +742,7 @@ public final class WaypointEditScreen extends Screen {
 		this.waypoint.color = this.color;
 		this.waypoint.icon = this.icon;
 		this.waypoint.visible = this.visible;
+		this.waypoint.webVisible = this.webVisible;
 		this.waypoint.folder = this.folder;
 		// Saving a temporary waypoint from the editor keeps it; otherwise a renamed one would still
 		// vanish on leaving the world.

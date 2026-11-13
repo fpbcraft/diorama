@@ -44,6 +44,7 @@
 <div class="where panel" id="where" hidden></div>
 <div class="map-empty" id="empty"></div>
 <script type="module">
+import { WebMarkers } from "./web-markers.js";
 import { WebFog } from "./web-fog.js";
 import { createOverlayApi, projectWorld } from "./overlay-api.js";
 "use strict";
@@ -93,9 +94,10 @@ const extensionApi = createOverlayApi({
     setFollow(false); draw(); saveHash(); return true;
   },
 });
+const publicMarkers=new WebMarkers(extensionApi,()=>map?.markerFeed);
 window.diorama = extensionApi;
 window.dispatchEvent(new Event("diorama:ready"));
-addEventListener("pagehide", () => { fog.dispose(); extensionApi.dispose(); }, { once: true });
+addEventListener("pagehide", () => { publicMarkers.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 

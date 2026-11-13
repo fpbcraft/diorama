@@ -72,7 +72,9 @@ public final class TrainBodies {
 					String key = level.dimension().identifier() + "/" + field(train,"id") + "/" + index;
 					UUID id = UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8));
 					present.add(id);
-					out.add(new Car(id,car,dim,level,anchor,leading,trailing));
+					Object name=field(train,"name");
+					String label=name instanceof net.minecraft.network.chat.Component text?text.getString():"";
+					out.add(new Car(id,car,dim,level,anchor,leading,trailing,label,field(train,"id").toString()));
 				}
 			}
 			registryAvailable=true;
@@ -80,7 +82,7 @@ public final class TrainBodies {
 		orientations.computeIfAbsent(level,l -> new HashMap<>()).keySet().retainAll(present);
 		return out;
 	}
-	private record Car(UUID id,Object carriage,Object dimensional,ServerLevel level,Vec3 anchor,Vec3 leading,Vec3 trailing) implements Body {
+	private record Car(UUID id,Object carriage,Object dimensional,ServerLevel level,Vec3 anchor,Vec3 leading,Vec3 trailing,String label,String markerGroup) implements Body {
 		private Object live() throws ReflectiveOperationException {
 			Object held = field(dimensional,"entity");
 			return held instanceof Reference<?> ref ? ref.get() : null;

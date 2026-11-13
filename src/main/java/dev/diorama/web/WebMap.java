@@ -89,6 +89,7 @@ public final class WebMap {
 	private final WebSettings settings;
 	private final LiveTerrain live;
 	private dev.diorama.web.vehicles.WebVehicles vehicles;
+	private final WebWaypoints waypoints;
 	private final VanillaTable table;
 	private final Path modsFolder;
 	final Path folder;
@@ -116,6 +117,7 @@ public final class WebMap {
 		this.table = table;
 		this.modsFolder = modsFolder;
 		this.folder = settings.folder() != null ? settings.folder() : server.getWorldPath(LevelResource.ROOT).resolve("diorama-web");
+		this.waypoints=new WebWaypoints(server.getWorldPath(LevelResource.ROOT),this.folder);
 		this.thread = new Thread(this::run, "Diorama web map");
 		this.thread.setDaemon(true);
 		this.thread.setPriority(Thread.MIN_PRIORITY);
@@ -139,6 +141,7 @@ public final class WebMap {
 		WebMap map = new WebMap(server, settings, table, modsFolder);
 		if (map.start()) {
 			running = map;
+			map.waypoints.start();
 			if (settings.vehicles()) map.vehicles = new dev.diorama.web.vehicles.WebVehicles(map.folder, table, modsFolder,
 				() -> !map.stopping && !map.paused && !map.serverBehind() && !server.isCurrentlySaving());
 		}
@@ -150,10 +153,19 @@ public final class WebMap {
 		running = null;
 		if (map != null) {
 			if (map.vehicles != null) map.vehicles.close();
+			map.waypoints.close();
 			map.stop();
 		}
 	}
 
+	/** Called only by the authenticated Minecraft connection, never an HTTP upload. */
+	public static boolean receiveWaypoints(net.minecraft.server.level.ServerPlayer player,byte[] data) {
+		if(data.length==0||data[0]!=WebWaypoints.MESSAGE)return false;
+		WebMap map=running;
+		if(map!=null&&player.level().getServer()==map.server)try {map.waypoints.receive(player.getUUID(),data);}
+		catch(java.io.IOException|RuntimeException error){Diorama.LOGGER.debug("Invalid public waypoint snapshot from {}",player.getUUID());}
+		return true;
+	}
 	/** Cheap dirty notification: no world reads, disk IO or rendering. */
 	public static void blockChanged(ServerLevel level, net.minecraft.core.BlockPos pos) {
 		WebMap map = running;
@@ -205,8 +217,9 @@ public final class WebMap {
 	private boolean start() {
 		try {
 			Files.createDirectories(this.folder);
+			WebPins.install(this.folder);
 			for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
-			for (String asset : new String[] {"index.html", "overlay-api.js"}) {
+			for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js"}) {
 				try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
 					if (page != null) {
 						Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
@@ -582,6 +595,7 @@ public final class WebMap {
 			.append(",\"facing\":").append(Projection.facing().turns)
 			.append(",\"depth\":").append(this.settings.depth())
 			.append(",\"vehicleFeed\":\"assets/diorama-vehicles/scene.json\"")
+			.append(",\"markerFeed\":\"markers.json\"")
 			.append(",\"fogCoverage\":true,\"roundedFog\":").append(dev.diorama.MapStyle.get().roundedFog())
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())

@@ -20,12 +20,12 @@ import org.joml.Quaterniond;
 /** Server-thread capture, bounded immutable handoff, low-priority craft tracing and publication. */
 public final class WebVehicles implements AutoCloseable {
 	private static final int LIMIT = 64;
-	private record Captured(String provider, UUID id, String dimension, Body.Blocks blocks, double[] pose) {
+	private record Captured(String provider, UUID id, String dimension, Body.Blocks blocks, double[] pose, String label, String markerGroup) {
 		String key() { return provider + "/" + id; }
 	}
 	private record Input(long time, List<Captured> bodies) {}
 	private record CapturedBlocks(Body.Blocks blocks, long version, long time) {}
-	private record Baked(Body.Blocks blocks, double[] linear, double y, VehicleSprites.Fileset files, String caster) {}
+	private record Baked(Body.Blocks blocks, double[] linear, double y, VehicleSprites.Fileset files, String caster, double size) {}
 	private final Path root;
 	private final java.util.function.BooleanSupplier active;
 	private long nextClean;
@@ -94,7 +94,7 @@ public final class WebVehicles implements AutoCloseable {
 				if(last!=null && last.dimension.equals(dimension))found.add(last);
 				continue;
 			}
-			Captured captured = new Captured(provider, body.id(), dimension, old.blocks, pose);
+			Captured captured = new Captured(provider, body.id(), dimension, old.blocks, pose, body.label(), body.markerGroup());
 			lastCaptured.put(key,captured);found.add(captured);
 		}
 	}
@@ -147,10 +147,13 @@ public final class WebVehicles implements AutoCloseable {
 			for (int a = 0; a < 3; a++) center[a] = p[a] + p[3+a]*b[0] + p[6+a]*b[1] + p[9+a]*b[2];
 			Quaterniond q = new Matrix3d().set(Arrays.copyOfRange(p, 3, 12)).getUnnormalizedRotation(new Quaterniond()).normalize();
 			String sprite = "assets/diorama-vehicles/" + ready.files.sprite(), atlas = "assets/diorama-vehicles/" + ready.files.atlas();
-			String label = body.provider.equals("sable_ships") ? "Sable ship" : body.provider.equals("create_trains") ? "Create train" : "Create contraption";
-			rows.add(Map.of("id", body.key(), "label", label, "dimension", body.dimension,
-				"mesh", sprite, "atlas", atlas, "pos", center, "rot", new double[]{q.x,q.y,q.z,q.w},
-				"caster", ready.caster == null ? "" : "assets/diorama-vehicles/" + ready.caster));
+			String label = !body.label.isBlank() ? body.label.substring(0,Math.min(64,body.label.length())) : body.provider.equals("sable_ships") ? "Sable ship" : body.provider.equals("create_trains") ? "Create train" : "Create contraption";
+			rows.add(Map.ofEntries(Map.entry("id",body.key()),Map.entry("label",label),Map.entry("dimension",body.dimension),
+				Map.entry("mesh",sprite),Map.entry("atlas",atlas),Map.entry("pos",center),Map.entry("rot",new double[]{q.x,q.y,q.z,q.w}),
+				Map.entry("group",body.provider+"/"+body.markerGroup),Map.entry("named",!body.label.isBlank()),Map.entry("size",ready.size),
+				Map.entry("icon","assets/diorama-markers/"+(body.provider.equals("sable_ships")?"ship":"train")+".png"),
+				Map.entry("caster",ready.caster == null ? "" : "assets/diorama-vehicles/" + ready.caster)));
+
 			publicRows.add(new WebVehicleScene.Vehicle(body.provider, body.id.toString(), label, body.dimension,
 				ready.files.version(), center[0],center[1],center[2],q.x,q.y,q.z,q.w,
 				root.resolve(ready.files.sprite()), root.resolve(ready.files.atlas())));
@@ -195,7 +198,7 @@ public final class WebVehicles implements AutoCloseable {
 		double[] relativePose = pose.clone();
 		System.arraycopy(offset,0,relativePose,0,3);
 		String caster = shape == null ? null : VehicleCaster.write(root,shape,offset,body.blocks.blocks().box(relativePose));
-		Baked made = new Baked(body.blocks, image.linear(), pose[1], VehicleSprites.write(root, image),caster);
+		Baked made = new Baked(body.blocks, image.linear(), pose[1], VehicleSprites.write(root, image),caster,Math.max(image.width(),image.height())/4.0);
 		baked.put(body.key(), made);
 		// Use at most a fifth of this background thread for tracing, as the client does.
 		nextBake = System.currentTimeMillis() + Math.max(100, (System.currentTimeMillis() - started) * 4);

@@ -83,3 +83,13 @@ Create trains are enumerated from `Create.RAILWAYS.trains`. Geometry is read thr
 | Wheel/propeller subpart animation | Native craft sprites do not carry BlueMap3D's animated mesh subparts; not claimed as parity |
 
 These implementation paths and fixtures do not replace dedicated-server acceptance. Verify unloaded/reloaded ships, cold trains, sloped/portal tracks, disassembly, copycats and changing roof/ground heights with the final JARs. In-game screenshot parity and the installed Create/Sable API bindings remain acceptance checks.
+
+## Named vehicle pins and public waypoints
+
+Player-assigned Sable names, Create train names and custom contraption names are published as labels. Once the vehicle's projected size is below 28 CSS pixels, a named vehicle keeps a visible pin and label. Carriages of the same train collapse to one pin at their average position, independently in each dimension. Pins use the actual in-game `PinArt` pixels; close-up models retain keyboard-accessible fallback pins. Clicking a pin centres the map there.
+
+In the in-game waypoint editor, select **Show on web map (public)** and save. This is separate from **Show on maps** and defaults off. Only selected waypoints are sent over the authenticated Minecraft connection; no browser upload endpoint exists. Unselecting or deleting a waypoint removes it from the owner's next snapshot, normally within two seconds plus the browser's five-second refresh. Selected waypoints remain visible while their owner is offline and survive server restarts.
+
+Each player can publish up to 64 selected waypoints; the server limits the list to 4,096 total. Snapshots replace only that authenticated player's entries, and duplicate ids from different players cannot overwrite each other. Names, coordinates, dimensions and message sizes are bounded. The private owner registry lives at `<world>/diorama-public-waypoints.json`; the web root contains only approved marker fields and pin images. Built-in waypoint icons use native pin art; custom resource-pack icons fall back to initials when the server does not have them. Both Minecraft client and server need the updated Diorama build to use the checkbox.
+
+The isolated marker test covers ownership, rate/coordinate/count bounds, opt-out, restart persistence and lossless native pin pixels. The browser fixture covers named pins at distant zoom and the selected waypoint overlay. The in-game editor layout and real ship/train names still need dedicated-server/client acceptance.

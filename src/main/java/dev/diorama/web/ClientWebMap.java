@@ -255,8 +255,8 @@ public final class ClientWebMap {
 				WebServer.send(exchange, asset == null ? 404 : 200, path.endsWith(".png") ? "image/png" : path.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/plain; charset=utf-8", head ? null : asset);
 				return;
 			}
-			if (path.equals("/overlay-api.js")) {
-				try (InputStream asset = ClientWebMap.class.getResourceAsStream("/diorama/web/overlay-api.js")) {
+			if (path.equals("/overlay-api.js") || path.equals("/web-markers.js")) {
+				try (InputStream asset = ClientWebMap.class.getResourceAsStream("/diorama/web"+path)) {
 					WebServer.send(exchange, asset == null ? 404 : 200, "text/javascript; charset=utf-8", head || asset == null ? null : asset.readAllBytes());
 				}
 				return;

@@ -161,6 +161,7 @@ public final class ContraptionBodies {
 	}
 
 	private record Moving(UUID id, Entity entity) implements Body {
+		@Override public String label() { var name=entity.getCustomName();return name==null?"":name.getString(); }
 		@Override
 		public Body.@Nullable Blocks read(Looks looks) {
 			if (failed) return null;
