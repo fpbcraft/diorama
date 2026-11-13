@@ -15,9 +15,9 @@ export const screenPosition = (point, state) => {
 };
 
 /** A composited overlay frame never calls the terrain renderer or its tile loader. */
-export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [], vehicleFeed = () => undefined }) => {
+export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [], vehicleFeed = () => undefined, queueFeed = () => undefined }) => {
   const events = new EventTarget();
-  let visibility={clouds:true,sablePins:true,trainPins:true,sharedMarkers:true};
+  let visibility={clouds:true,sablePins:true,trainPins:true,sharedMarkers:true,queuedTiles:false};
   try {const saved=JSON.parse(localStorage.getItem('diorama-map-visibility')||'{}');for(const key of Object.keys(visibility))if(typeof saved[key]==='boolean')visibility[key]=saved[key];}catch{}
 
   const overlays = new Map();
@@ -54,6 +54,7 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
     setDimension,
     depthTiles,
     vehicleFeed,
+    queueFeed,
     visible: key => visibility[key] !== false,
     setVisible(key,value) {
       if(!Object.hasOwn(visibility,key)||typeof value!=='boolean')return;

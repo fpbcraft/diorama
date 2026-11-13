@@ -7,6 +7,7 @@ export class WebMarkers {
     this.overlay=api.registerOverlay('public-waypoints',{element:this.container});
     this.style=document.createElement('style');this.style.textContent=`.diorama-public-pin{position:absolute;border:0;background:none;padding:0;pointer-events:auto;cursor:pointer;color:white}.diorama-public-pin img{position:absolute;inset:0;image-rendering:pixelated;width:100%;height:100%}.diorama-public-pin strong{position:absolute;left:20%;top:10%;width:60%;height:52%;display:grid;place-items:center;font:bold 11px monospace;text-shadow:1px 1px #101418,-1px -1px #101418}.diorama-public-pin span{position:absolute;left:100%;top:4px;padding:3px 5px;border-radius:3px;background:#15171ce8;color:white;white-space:nowrap;font:12px sans-serif;visibility:hidden}.diorama-public-pin:hover span,.diorama-public-pin:focus span{visibility:visible}.diorama-public-pin:focus-visible{outline:2px solid white}`;
     this.container.append(this.style);
+    api.events.addEventListener('dispose',()=>this.dispose(),{once:true,signal:this.abort.signal});
     api.events.addEventListener('visibility',()=>this.draw(),{signal:this.abort.signal});
     api.events.addEventListener('change',()=>{this.draw();if(!this.started&&feed()){this.started=true;void this.poll();}},{signal:this.abort.signal});
     if(feed()){this.started=true;void this.poll();}

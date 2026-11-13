@@ -90,6 +90,7 @@ public final class WebMap {
 	private final LiveTerrain live;
 	private dev.diorama.web.vehicles.WebVehicles vehicles;
 	private final WebWaypoints waypoints;
+	private WebQueueStatus queueStatus;
 	private final VanillaTable table;
 	private final Path modsFolder;
 	final Path folder;
@@ -142,6 +143,7 @@ public final class WebMap {
 		if (map.start()) {
 			running = map;
 			map.waypoints.start();
+			map.queueStatus=new WebQueueStatus(map.folder,map::queuedStatus,()->map.paused);
 			if (settings.vehicles()) map.vehicles = new dev.diorama.web.vehicles.WebVehicles(map.folder, table, modsFolder,
 				() -> !map.stopping && !map.paused && !map.serverBehind() && !server.isCurrentlySaving());
 		}
@@ -153,7 +155,7 @@ public final class WebMap {
 		running = null;
 		if (map != null) {
 			if (map.vehicles != null) map.vehicles.close();
-			map.waypoints.close();
+			map.waypoints.close();if(map.queueStatus!=null)map.queueStatus.close();
 			map.stop();
 		}
 	}
@@ -219,7 +221,7 @@ public final class WebMap {
 			Files.createDirectories(this.folder);
 			WebPins.install(this.folder);
 			for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
-			for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js"}) {
+			for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js"}) {
 				try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
 					if (page != null) {
 						Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
@@ -590,6 +592,20 @@ public final class WebMap {
 		}
 	}
 
+	private Map<String,WebQueueStatus.Frame> queuedStatus() {
+		Map<String,WebQueueStatus.Frame> result=new HashMap<>();
+		for(Dimension dimension:this.dimensions.values()){
+			Set<Long> waiting=this.live.waiting(dimension.id),cells=new java.util.LinkedHashSet<>();
+			for(long chunk:waiting){
+				Dimension.Drawn drawn=dimension.drawn.get(chunk);
+				dimension.markTiles((int)(chunk>>32),(int)chunk,drawn==null?dimension.maximumY:drawn.top(),drawn==null?dimension.minimumY:drawn.floor(),cells);
+				if(cells.size()>=WebQueueStatus.LIMIT)break;
+			}
+			for(long tile:dimension.pending.first(WebQueueStatus.LIMIT)){cells.add(tile);if(cells.size()>=WebQueueStatus.LIMIT)break;}
+			result.put(dimension.id,new WebQueueStatus.Frame(dimension.pending.size(),waiting.size(),cells.size()>=WebQueueStatus.LIMIT,List.copyOf(cells)));
+		}return result;
+	}
+
 	/** What the page reads first: the projection, and each dimension's tiles at each zoom. */
 	void writeMapJson() {
 		StringBuilder json = new StringBuilder();
@@ -601,7 +617,7 @@ public final class WebMap {
 			.append(",\"land\":\"").append(this.settings.everyChunk() ? "generated" : "visited").append('"')
 			.append(",\"depth\":").append(this.settings.depth())
 			.append(",\"vehicleFeed\":\"assets/diorama-vehicles/scene.json\"")
-			.append(",\"markerFeed\":\"markers.json\"")
+			.append(",\"markerFeed\":\"markers.json\",\"queueFeed\":\"queue-status.json\"")
 			.append(",\"fogCoverage\":true,\"roundedFog\":").append(dev.diorama.MapStyle.get().roundedFog())
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())
@@ -648,7 +664,9 @@ public final class WebMap {
 		 * {@link ChunkSnapshot#key}: a chunk saved with the same blocks needs no redraw, and one that
 		 * got lower still redraws the tiles it used to reach.
 		 */
-		private final Map<Long, Drawn> drawn = new HashMap<>();
+		private final Map<Long, Drawn> drawn = new ConcurrentHashMap<>();
+		private final int minimumY,maximumY;
+		private final boolean ceiling;
 		/** Tiles on disk, per zoom level, as {@link #key}. */
 		@SuppressWarnings("unchecked")
 		private final Set<Long>[] tiles = new Set[MAX_ZOOM + 1];
@@ -661,6 +679,7 @@ public final class WebMap {
 			this.folder = map.folder.resolve(id.replace(':', '_').replace('/', '_'));
 			this.pending = new WebTileQueue(this.folder);
 			this.coverageRepair = new WebCoverageRepair(this.folder);
+			this.minimumY=level.getMinY();this.maximumY=level.getMaxY();this.ceiling=level.dimensionType().hasCeiling();
 			this.queuedCount = this.pending.size();
 			this.save = ServerSave.of(level);
 			int roof = level.dimensionType().hasCeiling() ? level.getMinY() + level.dimensionType().logicalHeight() : ChunkSource.NO_ROOF;
@@ -1162,7 +1181,7 @@ public final class WebMap {
 			int top = maxY + 1;
 			// Under a roof the map looks down from below it, as far as the dimension's floor; the
 			// height maps there stop at the roof.
-			int bottom = this.level.dimensionType().hasCeiling() ? this.level.getMinY() : Math.max(floorY, this.level.getMinY());
+			int bottom = this.ceiling ? this.minimumY : Math.max(floorY, this.minimumY);
 			double v0 = z0 * sin - (top + TileBaker.SHADOW_REACH_Y) * cos;
 			double v1 = z1 * sin - bottom * cos;
 			int u0 = Math.floorDiv(x0, Projection.TILE_UNITS);

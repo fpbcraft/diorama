@@ -42,7 +42,7 @@
     .map-icon-button {display:grid;place-items:center;box-sizing:border-box;width:44px;height:var(--map-control-height);color:var(--text);cursor:pointer;list-style:none;}
     .map-icon-button::-webkit-details-marker{display:none;}
     .map-menu[open]>.map-icon-button{border-color:#91d1c0;box-shadow:0 0 0 1px #91d1c066;}
-    .map-menu-body{position:absolute;right:0;top:calc(var(--map-control-height) + 10px);width:min(320px,calc(100vw - 24px));box-sizing:border-box;padding:18px;background:var(--panel);box-shadow:var(--map-shadow);}
+    .map-menu-body{position:absolute;right:0;top:calc(var(--map-control-height) + 10px);width:min(320px,calc(100vw - 24px));box-sizing:border-box;padding:18px;max-height:calc(100dvh - 150px);overflow:auto;background:var(--panel);box-shadow:var(--map-shadow);}
     .map-menu-body>strong{display:block;font-size:18px;}.map-menu-body>small{display:block;color:var(--muted);margin:4px 0 12px;}
     .map-menu-body label{display:flex;align-items:center;gap:12px;min-height:58px;border-top:1px solid var(--line);cursor:pointer;}
     .map-setting-icon{display:grid;place-items:center;width:36px;height:36px;background:#ffffff0b;border:1px solid var(--line);border-radius:8px;flex:none;}
@@ -67,6 +67,7 @@
 <div class="where panel" id="where" hidden></div>
 <div class="map-empty" id="empty"></div>
 <script type="module">
+import { WebQueue } from "./web-queue.js";
 import { MapControls } from "./map-controls.js";
 import { WebMarkers } from "./web-markers.js";
 import { coverageSources } from "./fog-coverage.js";
@@ -98,6 +99,7 @@ const extensionApi = createOverlayApi({
     if (dim?.id !== id) { pick(next, false); buildDims(); saveHash(); }
     return true;
   },
+  queueFeed:()=>map?.queueFeed?new URL(map.queueFeed,location.href).href:undefined,
   vehicleFeed: () => map?.vehicleFeed ? new URL(map.vehicleFeed, location.href).href : undefined,
   depthTiles: () => {
     if (!map?.depth || !dim) return [];
@@ -120,11 +122,12 @@ const extensionApi = createOverlayApi({
   },
 });
 const controls=new MapControls(extensionApi);
+const queueOverlay=new WebQueue(extensionApi);
 extensionApi.events.addEventListener('visibility',()=>draw());
 const publicMarkers=new WebMarkers(extensionApi,()=>map?.markerFeed);
 window.diorama = extensionApi;
 window.dispatchEvent(new Event("diorama:ready"));
-addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
+addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose();queueOverlay.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 

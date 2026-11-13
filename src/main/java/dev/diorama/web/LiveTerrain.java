@@ -9,7 +9,7 @@ import net.minecraft.server.level.ServerLevel;
 final class LiveTerrain {
 	record Changed(String dimension, long key, ChunkSnapshot snapshot, long capturedAt) {}
 	private static final int MAX_SNAPSHOTS = 256;
-	private final Map<String, DirtyChunks> dirty = new HashMap<>(); // server thread only
+	private final Map<String, DirtyChunks> dirty = new java.util.concurrent.ConcurrentHashMap<>(); // entries expose synchronized snapshots
 	private final LinkedHashMap<String, Changed> snapshots = new LinkedHashMap<>();
 	private final LinkedHashMap<String, Changed> updates = new LinkedHashMap<>();
 	private Map<String, Changed> rendering;
@@ -48,6 +48,7 @@ final class LiveTerrain {
 		var changed = (rendering == null ? snapshots : rendering).get(dimension + ":" + ChunkSnapshot.key(x, z));
 		return changed == null ? null : changed.snapshot();
 	}
+	Set<Long> waiting(String dimension) {var queue=dirty.get(dimension);return queue==null?Set.of():queue.snapshot();}
 	void cancel() { dirty.clear(); synchronized (this) { updates.clear(); } }
 	synchronized void beginRender() { rendering = Map.copyOf(snapshots); }
 	synchronized void endRender() { rendering = null; }
