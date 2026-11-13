@@ -223,11 +223,13 @@ public final class WebMap {
 		try {
 			Files.createDirectories(this.folder);
 			WebPins.install(this.folder);
-			for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
-			for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js"}) {
-				try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
-					if (page != null) {
-						Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
+			if (!WebFrontendAssets.install(this.folder)) {
+				for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
+				for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js"}) {
+					try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
+						if (page != null) {
+							Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
+						}
 					}
 				}
 			}

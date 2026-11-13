@@ -1,0 +1,30 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'dev.diorama'
+version = '0.1.0'
+base.archivesName = 'diorama-web'
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+neoForge {
+    version = '21.1.263'
+    mods {
+        diorama_web { sourceSet sourceSets.main }
+    }
+}
+def coreProperties = new Properties()
+file('../../gradle.properties').withInputStream { coreProperties.load(it) }
+def coreJar = file("../../versions/1.21.1-neoforge/build/libs/diorama-${coreProperties.getProperty('mod_version')}+neoforge-1.21.1.jar")
+dependencies { compileOnly files(coreJar) }
+
+tasks.named('processResources') {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') { expand version: project.version }
+    from('../../src/main/resources/diorama/web') {
+        include '*.html', '*.js', '*.fsh', 'fog-noise.png'
+        into 'diorama-web-assets'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }

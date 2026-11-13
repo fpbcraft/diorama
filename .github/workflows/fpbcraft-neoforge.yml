@@ -48,3 +48,12 @@ jobs:
         run: node scripts/test-web-markers.mjs
       - name: Compile FPBCraft companion addon
         run: ./gradlew -p addons/fpbcraft-map-addon build --stacktrace
+      - name: Build independent web-assets addon
+        run: |
+          node scripts/test-web-assets.mjs
+          ./gradlew -p addons/diorama-web build --stacktrace
+      - name: Upload server web-assets JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: diorama-web-neoforge-1.21.1
+          path: addons/diorama-web/build/libs/diorama-web-*.jar
