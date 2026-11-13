@@ -139,7 +139,8 @@ public final class WebMap {
 		WebMap map = new WebMap(server, settings, table, modsFolder);
 		if (map.start()) {
 			running = map;
-			if (settings.vehicles()) map.vehicles = new dev.diorama.web.vehicles.WebVehicles(map.folder, table, modsFolder);
+			if (settings.vehicles()) map.vehicles = new dev.diorama.web.vehicles.WebVehicles(map.folder, table, modsFolder,
+				() -> !map.stopping && !map.paused && !map.serverBehind() && !server.isCurrentlySaving());
 		}
 	}
 

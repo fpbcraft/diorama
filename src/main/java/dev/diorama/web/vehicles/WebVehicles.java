@@ -27,6 +27,7 @@ public final class WebVehicles implements AutoCloseable {
 	private record Baked(Body.Blocks blocks, double[] linear, double y, VehicleSprites.Fileset files) {}
 	private record Shadow(VehicleSprites.Fileset files, double[] center, double[] pose, Body.Blocks blocks, long madeAt) {}
 	private final Path root;
+	private final java.util.function.BooleanSupplier active;
 	private final VehicleShadows shadows;
 	private final Map<String, Shadow> shaded = new HashMap<>();
 	private long nextShadow;
@@ -43,7 +44,8 @@ public final class WebVehicles implements AutoCloseable {
 	private long nextCopy; // at most one bounded grid copy across all dimensions per two ticks
 	private long nextBake;
 
-	public WebVehicles(Path webRoot, VanillaTable table, Path modsFolder) {
+	public WebVehicles(Path webRoot, VanillaTable table, Path modsFolder, java.util.function.BooleanSupplier active) {
+		this.active = active;
 		this.root = webRoot.resolve("assets/diorama-vehicles");
 		this.shadows = new VehicleShadows(webRoot);
 		worker = new Thread(() -> run(table, modsFolder), "Diorama vehicle publisher");
@@ -92,6 +94,7 @@ public final class WebVehicles implements AutoCloseable {
 			jars = JarModels.of(modsFolder);
 			looks = new TableLooks(table, jars);
 			while (!closed) {
+				if (!active.getAsBoolean()) { Thread.sleep(1000); continue; }
 				Input current = input;
 				try { publish(current); }
 				catch (java.io.IOException | RuntimeException error) { Diorama.LOGGER.warn("Couldn't publish vehicles; retrying", error); Thread.sleep(5000); }
