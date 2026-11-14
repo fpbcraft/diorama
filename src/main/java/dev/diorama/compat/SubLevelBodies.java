@@ -167,6 +167,42 @@ public final class SubLevelBodies {
 		return (long) plotX << 32 | plotZ & 0xFFFFFFFFL;
 	}
 
+
+	/** Observes real removal versus unloading without keeping the web publisher alive. Server thread. */
+	public static boolean observe(ServerLevel level, java.util.function.BiConsumer<UUID, String> listener) {
+		if (!ready()) return false;
+		try {
+			Object container = container(level);
+			if (container == null) return false;
+			Class<?> api = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevelObserver");
+			var weak = new WeakReference<>(listener);
+			Object observer = java.lang.reflect.Proxy.newProxyInstance(api.getClassLoader(), new Class<?>[]{api}, (proxy, method, args) -> {
+				if (method.getDeclaringClass() == Object.class) return switch (method.getName()) {
+					case "hashCode" -> System.identityHashCode(proxy);
+					case "equals" -> proxy == args[0];
+					default -> "Diorama Sable lifecycle observer";
+				};
+				var target = weak.get();
+				try {
+				if (target != null && args != null && args.length > 0
+					&& (method.getName().equals("onSubLevelRemoved") || method.getName().equals("onSubLevelAdded"))
+					&& uniqueId.invoke(args[0]) instanceof UUID id) {
+					String event = args.length > 1 && args[1] instanceof Enum<?> reason ? reason.name() : "LOADED";
+					target.accept(id, event);
+				}
+				} catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
+					if (!warned) { warned = true; Diorama.LOGGER.warn("Couldn't read a Sable lifecycle event", error); }
+				}
+				return null;
+			});
+			OptionalCall.virtual(container.getClass(), "addObserver", void.class, api).invoke(container, observer);
+			return true;
+		} catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
+			if (!warned) { warned = true; Diorama.LOGGER.warn("Couldn't observe Sable ship unloading", error); }
+			return false;
+		}
+	}
+
 	/** The ships the client has in this level. */
 	public static List<Body> bodies(Level level) {
 		if (!ready()) {
@@ -193,7 +229,8 @@ public final class SubLevelBodies {
 					if (!(level instanceof ServerLevel) && finalized != null && !(boolean) finalized.invoke(ship)) {
 						continue;
 					}
-					Object box = bounds.invoke(plot.invoke(ship));
+					Object shipPlot = plot.invoke(ship);
+					Object box = shipPlot == null ? null : bounds.invoke(shipPlot);
 					int[] corners = new int[6];
 					if (box == null && level instanceof ServerLevel && uniqueId.invoke(ship) instanceof UUID id) {
 						bodies.add(new Ship(id, ship, level, new int[]{0,0,0,-1,-1,-1}, 0));
