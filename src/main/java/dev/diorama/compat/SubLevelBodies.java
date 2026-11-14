@@ -183,11 +183,15 @@ public final class SubLevelBodies {
 					default -> "Diorama Sable lifecycle observer";
 				};
 				var target = weak.get();
+				try {
 				if (target != null && args != null && args.length > 0
 					&& (method.getName().equals("onSubLevelRemoved") || method.getName().equals("onSubLevelAdded"))
 					&& uniqueId.invoke(args[0]) instanceof UUID id) {
 					String event = args.length > 1 && args[1] instanceof Enum<?> reason ? reason.name() : "LOADED";
 					target.accept(id, event);
+				}
+				} catch (ReflectiveOperationException | RuntimeException | LinkageError error) {
+					if (!warned) { warned = true; Diorama.LOGGER.warn("Couldn't read a Sable lifecycle event", error); }
 				}
 				return null;
 			});
