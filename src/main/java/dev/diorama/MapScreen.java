@@ -1047,8 +1047,8 @@ public final class MapScreen extends Screen {
 		if (range < 0 || this.minecraft.player == null) {
 			return;
 		}
-		int cx = this.minecraft.player.chunkPosition().x;
-		int cz = this.minecraft.player.chunkPosition().z;
+		int cx = this.minecraft.player.chunkPosition().x();
+		int cz = this.minecraft.player.chunkPosition().z();
 		long[] x = {(long) (cx - range) * 16, ((long) cx + range + 1) * 16};
 		long[] z = {(long) (cz - range) * 16, ((long) cz + range + 1) * 16};
 		double y = viewer.getY();
@@ -1090,7 +1090,7 @@ public final class MapScreen extends Screen {
 		this.spotAt(fromX, fromY, false).thenCombine(this.spotAt(toX, toY, false), (from, to) ->
 			new BlockPos[] {from.pos() == null ? roughFrom : from.pos(), to.pos() == null ? roughTo : to.pos()})
 			.thenAcceptAsync(bounds -> {
-				if (this.minecraft.level != world || this.minecraft.screen != this) {
+				if (this.minecraft.level != world || this.minecraft.gui.screen() != this) {
 					return;
 				}
 				int x0 = bounds[0].getX() >> 4, z0 = bounds[0].getZ() >> 4;

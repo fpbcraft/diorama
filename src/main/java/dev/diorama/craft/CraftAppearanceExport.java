@@ -36,7 +36,14 @@ public final class CraftAppearanceExport {
 					icons.put(id, pixels);
 				}
 				Files.writeString(folder.resolve("waypoint-icons.json"), gson.toJson(icons));
-				if (client.player != null) client.player.displayClientMessage(Component.literal("Diorama web appearance exported to " + folder), false);
+				if (client.player != null) {
+					Component message = Component.literal("Diorama web appearance exported to " + folder);
+					//? if >=26.1 {
+					client.gui.hud.getChat().addClientSystemMessage(message);
+					//?} else {
+					/*client.gui.getChat().addMessage(message);
+					*///?}
+				}
 				return 1;
 			} catch (java.io.IOException | RuntimeException error) { Diorama.LOGGER.warn("Couldn't export web appearance", error); return 0; }
 		}));

@@ -299,7 +299,14 @@ public final class TrackGraph {
 
     private static List<Block> blocksFromIngredient(Ingredient ingredient) {
         List<Block> blocks = new ArrayList<>();
-        for (ItemStack stack : ingredient.getItems()) if (stack.getItem() instanceof BlockItem blockItem) blocks.add(blockItem.getBlock());
+        //? if >=1.21.4 {
+        var items = ingredient.items().map(holder -> holder.value()).toList();
+        //?} else if >=1.21.2 {
+        /*var items = ingredient.items().stream().map(holder -> holder.value()).toList();
+        *///?} else {
+        /*var items = Arrays.stream(ingredient.getItems()).map(ItemStack::getItem).toList();
+        *///?}
+        for (var item : items) if (item instanceof BlockItem blockItem) blocks.add(blockItem.getBlock());
         return List.copyOf(blocks);
     }
 
