@@ -19,3 +19,7 @@ node scripts/test-web-assets.mjs
 ```
 
 Output: `addons/diorama-web/build/libs/diorama-web-0.1.0.jar`. The PR workflow uploads this artifact. No Vercel setup is required for the addon; existing frontend previews continue to use the static exporter and live backend.
+
+## Local acceptance
+
+The NeoForge 1.21.1 lab started with this addon installed on the dedicated server. All 14 served frontend resources matched the addon JAR byte for byte, and automatic extension, map, vehicle and queue feeds remained available. A Prism client without this addon successfully joined the lab on November 13. Its existing Diorama client core did not need an update for this frontend bundle.
