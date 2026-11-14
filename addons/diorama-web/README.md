@@ -18,7 +18,7 @@ From the repository root:
 node scripts/test-web-assets.mjs
 ```
 
-Output: `addons/diorama-web/build/libs/diorama-web-0.1.1.jar`. The PR workflow uploads this artifact. No Vercel setup is required for the addon; existing frontend previews continue to use the static exporter and live backend.
+Output: `addons/diorama-web/build/libs/diorama-web-0.1.2.jar`. The PR workflow uploads this artifact. No Vercel setup is required for the addon; existing frontend previews continue to use the static exporter and live backend.
 
 ## Local acceptance
 

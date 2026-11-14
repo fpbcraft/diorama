@@ -51,8 +51,17 @@
     .map-menu-body input[role=switch]:checked{background:#39ad83;}.map-menu-body input[role=switch]:checked:before{transform:translateX(15px);}
     .map-menu-body input:focus-visible,.map-icon-button:focus-visible{outline:2px solid #a1e5cf;outline-offset:3px;}
     .map-update{position:fixed;right:68px;bottom:calc(var(--map-bottom) + 54px);padding:5px 8px;color:var(--muted);font-size:11px;pointer-events:auto;}
-    #dimension-select{display:none;color:var(--text);font:inherit;height:44px;padding:0 10px;width:125px;box-sizing:border-box;}
-    @media(max-width:760px){#dims{display:none!important;}#dimension-select{display:block;width:110px;}.map-tools{top:var(--map-top);}.map-update{right:68px;}.map-menu-body{max-height:calc(100dvh - 90px);}}
+    .map-update::before{content:"Map updated ";white-space:pre;}
+    #dimension-button{display:none;width:44px;height:44px;place-items:center;}
+    #dimension-button svg,#dimension-menu svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+    #dimension-menu{position:fixed;inset:auto;left:12px;top:calc(var(--map-top) + 54px);margin:0;padding:6px;min-width:190px;max-height:calc(100dvh - 140px);overflow:auto;color:var(--text);}
+    #dimension-menu:popover-open{display:grid;gap:4px;}#dimension-menu::backdrop{background:transparent;}
+    #dimension-menu button{display:flex;align-items:center;gap:12px;min-height:44px;padding:8px 12px;text-align:left;border-radius:6px;}
+    #dimension-menu button[aria-checked=true]{background:#ffffff14;color:#a1e5cf;}
+    .bar{z-index:60;}
+    button.panel:hover{background:#253541;}
+    @media(max-width:760px){#dims{display:none!important;}#dimension-button{display:grid;}#where{display:none!important;}.map-tools{top:var(--map-top);}.map-update{left:64px;right:auto;bottom:var(--map-bottom);height:44px;max-width:calc(100vw - 246px);box-sizing:border-box;display:flex;align-items:center;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.map-update[hidden]{display:none;}.map-update::before{content:"Updated ";}.map-menu-body{max-height:calc(100dvh - 90px);}}
+    @media(max-width:350px){.map-update::before{content:"";}.map-update{padding-inline:6px;}}
     button:hover,.map-icon-button:hover{background-color:#ffffff0c;}
     @media(prefers-reduced-motion:reduce){.map-menu-body input[role=switch]:before{transition:none;}}
 </style>
@@ -61,7 +70,8 @@
 <canvas id="map" aria-label="Map"></canvas>
 <canvas id="fog" aria-hidden="true" style="pointer-events:none"></canvas>
 <div id="overlays" style="position:fixed;inset:0;pointer-events:none"></div>
-<div class="bar"><select id="dimension-select" class="panel" aria-label="Dimension"></select><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
+<div class="bar"><button id="dimension-button" class="panel" type="button" popovertarget="dimension-menu" aria-label="Choose dimension" aria-haspopup="menu"></button><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
+<div id="dimension-menu" class="panel" popover role="menu" aria-label="Dimensions"></div>
 <div id="map-tools" class="map-tools"></div>
 <time id="map-update" class="map-update panel" hidden></time>
 <div class="zoom panel"><button id="in" aria-label="Zoom in">+</button><button id="out" aria-label="Zoom out">&minus;</button></div>
@@ -181,7 +191,7 @@ function showPlayerWhere() {
 function pick(d, first) {
     const updated=document.getElementById('map-update');
     updated.hidden=!Number.isFinite(map.updated);
-    if(!updated.hidden){const date=new Date(map.updated);updated.dateTime=date.toISOString();updated.textContent='Map updated '+date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});updated.title='Latest map publication: '+date.toLocaleString();}
+    if(!updated.hidden){const date=new Date(map.updated);updated.dateTime=date.toISOString();updated.textContent=date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});updated.setAttribute('aria-label','Map updated '+updated.textContent);updated.title='Latest map publication: '+date.toLocaleString();}
 
 	const switched = !dim || !d || dim.id !== d.id;
 	dim = d || null;
@@ -223,9 +233,23 @@ function home(first) {
 function buildDims() {
 	const box = document.getElementById("dims");
 	box.innerHTML = "";
-    const select=document.getElementById('dimension-select');select.replaceChildren();
-    for(const d of map.dimensions){const option=document.createElement('option');option.value=d.id;option.textContent=nameOf(d.id);option.selected=d.id===dim?.id;select.append(option);}
-    select.onchange=()=>extensionApi.setDimension(select.value);
+    const trigger=document.getElementById('dimension-button'),menu=document.getElementById('dimension-menu');
+    trigger.innerHTML=dimensionIcon(dim?.id);trigger.title='Dimension: '+nameOf(dim?.id||'minecraft:overworld');
+    trigger.setAttribute('aria-label',trigger.title+'. Choose dimension');
+    menu.replaceChildren();
+    for(const d of map.dimensions){
+      const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitemradio');
+      button.setAttribute('aria-checked',String(d.id===dim?.id));button.innerHTML=dimensionIcon(d.id);
+      const label=document.createElement('span');label.textContent=nameOf(d.id);button.append(label);
+      button.onclick=()=>{extensionApi.setDimension(d.id);menu.hidePopover();trigger.focus();};menu.append(button);
+    }
+    menu.onkeydown=event=>{
+      const buttons=[...menu.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);
+      if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
+        event.preventDefault();buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowUp'?-1:1)+buttons.length)%buttons.length]?.focus();
+      }
+    };
+    menu.ontoggle=event=>{trigger.setAttribute('aria-expanded',String(event.newState==='open'));if(event.newState==='open')menu.querySelector('[aria-checked=true]')?.focus();};
 	box.style.display = map.dimensions.length > 1 ? "flex" : "none";
 	for (const d of map.dimensions) {
 		const b = document.createElement("button");
@@ -234,6 +258,13 @@ function buildDims() {
 		b.onclick = () => { pick(d, false); buildDims(); saveHash(); };
 		box.appendChild(b);
 	}
+}
+
+function dimensionIcon(id) {
+    const path=id==='minecraft:the_nether'?'<path d="M12 3c2 4-1 5 1 8 1-1 2-2 2-4 4 4 5 7 3 11a7 7 0 0 1-12-1C4 12 8 8 12 3Z"/>':
+      id==='minecraft:the_end'?'<path d="m12 3 3 6 6 3-6 3-3 6-3-6-6-3 6-3Z"/><circle cx="12" cy="12" r="2"/>':
+      '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M5 6.5h14M5 17.5h14"/>';
+    return '<svg viewBox="0 0 24 24" aria-hidden="true">'+path+'</svg>';
 }
 
 function nameOf(id) {
@@ -485,7 +516,9 @@ function gesture() {
 	const d = ps.length > 1 ? Math.hypot(ps[0].clientX - ps[1].clientX, ps[0].clientY - ps[1].clientY) : 1;
 	return { n: ps.length, x, y, d };
 }
-canvas.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.pow(2, -e.deltaY / (e.deltaMode ? 3 : 300))); draw(); saveHashSoon(); }, { passive: false });
+const wheelZoom = e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.pow(2, -e.deltaY / (e.deltaMode ? 3 : 300))); draw(); saveHashSoon(); };
+canvas.addEventListener("wheel", wheelZoom, { passive: false });
+document.getElementById("overlays").addEventListener("wheel", wheelZoom, { passive: false });
 function limits() {
 	const native = map ? map.tilePixels / map.tileUnits : 4;
 	const coarsest = dim ? dim.zoomLevels - 1 : 0;

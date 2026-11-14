@@ -21,7 +21,7 @@ final class WebWaypoints implements AutoCloseable {
 		}
 	}
 	private final Path file,root;
-	private Map<String,dev.diorama.render.PinArt.Image> icons=Map.of();
+	private Map<String,dev.diorama.render.PinArt.Image> icons=WebWaypointIcons.load(null);
 	private final Map<UUID,List<Marker>> owners=new LinkedHashMap<>();
 	private final Map<UUID,Long> next=new HashMap<>();
 	private final AtomicBoolean queued=new AtomicBoolean();

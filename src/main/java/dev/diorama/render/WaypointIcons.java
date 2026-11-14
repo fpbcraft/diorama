@@ -41,7 +41,7 @@ public final class WaypointIcons {
 	public static PinArt.@Nullable Image image(String id) {
 		Optional<PinArt.Image> known = IMAGES.get(id);
 		if (known == null) {
-			PinArt.Image loaded = load(id, Minecraft.getInstance().getResourceManager());
+			PinArt.Image loaded = id.startsWith("url:") ? loadDownloaded(id) : load(id, Minecraft.getInstance().getResourceManager());
 			known = Optional.ofNullable(loaded == null ? null : tiled(loaded));
 			IMAGES.put(id, known);
 		}
@@ -66,8 +66,21 @@ public final class WaypointIcons {
 		}
 		added.sort(null);
 		ids.addAll(added);
+		ids.addAll(UrlWaypointIcons.all(downloadFolder()));
 		return ids;
 	}
+
+    public static java.nio.file.Path downloadFolder() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("diorama/waypoint-icons");
+    }
+
+    private static PinArt.@Nullable Image loadDownloaded(String id) {
+        var file = UrlWaypointIcons.file(downloadFolder(), id);
+        if (file == null || !java.nio.file.Files.isRegularFile(file)) return null;
+        try (InputStream in = java.nio.file.Files.newInputStream(file); NativeImage image = NativeImage.read(in)) {
+            return cropped(image);
+        } catch (IOException | RuntimeException error) { return null; }
+    }
 
 	private static PinArt.@Nullable Image load(String id, ResourceManager manager) {
 		Identifier name = Identifier.tryParse(id);

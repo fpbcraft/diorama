@@ -34,6 +34,7 @@ jobs:
       - name: Check web projection and HTTP security
         run: |
           node --test tests/web/*.test.mjs
+          node scripts/test-url-icons.mjs
           node scripts/test-web-server.mjs
           node scripts/test-web-terrain.mjs
           node scripts/test-web-vehicles.mjs
@@ -45,7 +46,7 @@ jobs:
       - name: Check material-slot model rendering
         run: node scripts/test-material-models.mjs
       - name: Check public waypoint ownership and native pins
-        run: node scripts/test-web-markers.mjs
+        run: node scripts/test-web-markers.mjs --jar
       - name: Compile FPBCraft companion addon
         run: ./gradlew -p addons/fpbcraft-map-addon build --stacktrace
       - name: Build independent web-assets addon
