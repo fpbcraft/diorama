@@ -42,6 +42,13 @@ public final class WebWaypointsTest {
 			store.close();Files.delete(web.resolve("markers.json"));
 			WebWaypoints restored=new WebWaypoints(world,web,clock::get);restored.start();
 			waitFor(web.resolve("markers.json"),"Other owner pin",true);restored.close();
+			WebWaypoints restricted=new WebWaypoints(world,web,clock::get,id -> !id.equals("minecraft:overworld"));
+			restricted.start();
+			waitFor(web.resolve("markers.json"),"Other owner pin",false);
+			if(!Files.readString(world.resolve("diorama-public-waypoints.json")).contains("Other owner pin"))throw new AssertionError("Excluded waypoint lost from persistent store");
+			restricted.close();
+			WebWaypoints allowedAgain=new WebWaypoints(world,web,clock::get);allowedAgain.start();
+			waitFor(web.resolve("markers.json"),"Other owner pin",true);allowedAgain.close();
 			int[] pixels=new int[121];java.util.Arrays.fill(pixels,0xffff00ff);
 			Path iconFile=world.resolve("waypoint-icons.json");Files.writeString(iconFile,new com.google.gson.Gson().toJson(Map.of("example:station",pixels,"example:invalid",new int[3])));
 			var icons=WebWaypointIcons.load(iconFile);if(icons.size()!=1||!icons.containsKey("example:station"))throw new AssertionError("Exported icon bounds ignored");

@@ -204,8 +204,8 @@ public final class OpacClaims {
 		if (distance < 0 || mc.player == null) {
 			return false;
 		}
-		return Math.abs((long) chunkX - mc.player.chunkPosition().x) > distance
-			|| Math.abs((long) chunkZ - mc.player.chunkPosition().z) > distance;
+		return Math.abs((long) chunkX - mc.player.chunkPosition().x()) > distance
+			|| Math.abs((long) chunkZ - mc.player.chunkPosition().z()) > distance;
 	}
 
 	/** A claim response is only shown if its dimension and exact area match our pending request. */
@@ -270,10 +270,10 @@ public final class OpacClaims {
 
 	/** Map-local result panel; actionbar fallback when the map was closed meanwhile. */
 	private static void feedback(Minecraft mc, Component message, boolean error, boolean pending) {
-		if (mc.screen instanceof MapScreen map) {
+		if (mc.gui.screen() instanceof MapScreen map) {
 			map.showClaimFeedback(message, error, pending);
 		} else if (mc.player != null) {
-			mc.player.displayClientMessage(message, true);
+			mc.gui.hud.setOverlayMessage(message, false);
 		}
 	}
 

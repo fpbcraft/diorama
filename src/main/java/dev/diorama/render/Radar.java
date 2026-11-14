@@ -3,6 +3,7 @@ package dev.diorama.render;
 import com.google.common.collect.Iterables;
 import dev.diorama.MapSession;
 import dev.diorama.Projection;
+import dev.diorama.RadarCategories;
 import dev.diorama.Settings;
 import dev.diorama.TrackedPlayers;
 import java.util.ArrayList;
@@ -28,9 +29,12 @@ import org.jspecify.annotations.Nullable;
  * beyond the loaded chunks whose position the server reports (see {@link TrackedPlayers}). Mobs
  * show as their own face (see {@link MobFaces}) framed in a colour by how they treat you, or as a
  * dot of that colour when they have no face icon. Xaero's Minimap's icon files can give a mob an
- * image, an item or a dot instead (see {@link XaeroRadarIcons}). Dropped items are small dots under
+ * image, an item or a dot instead (see {@link XaeroRadarIcons}), and Pokémon show as their own
+ * pictures, a shiny one with a sparkle. Dropped items are small dots under
  * everything else. Anything well above or below you fades a little, and all but dropped items get a
- * caret, since the map is a top view and can't otherwise show height.
+ * caret, since the map is a top view and can't otherwise show height; the caret is a setting.
+ * Whether something shows, how big, and with its name under it is up to its category (see
+ * {@link RadarCategories}).
  */
 public final class Radar {
 	/** Vertical distance, in blocks, past which a caret shows. */
@@ -51,8 +55,11 @@ public final class Radar {
 		}
 	}
 
-	/** An entity placed on screen. {@code dy} is its height relative to the viewing player. */
-	public record Blip(Entity entity, Kind kind, float x, float y, double dy, float size) {
+	/**
+	 * An entity placed on screen. {@code dy} is its height relative to the viewing player, and
+	 * {@code named} whether its category puts its name under it in this view.
+	 */
+	public record Blip(Entity entity, Kind kind, float x, float y, double dy, float size, boolean named) {
 	}
 
 	private Radar() {
@@ -100,7 +107,11 @@ public final class Radar {
 				continue;
 			}
 			Kind kind = kind(entity);
-			if (kind == null || !shown(kind, settings)) {
+			if (kind == null) {
+				continue;
+			}
+			RadarCategories.Entry category = RadarCategories.of(entity, kind);
+			if (!category.shown()) {
 				continue;
 			}
 			Vec3 pos = entity.getPosition(partialTick);
@@ -112,24 +123,16 @@ public final class Radar {
 			if (x < view.x() - margin || y < view.y() - margin || x > view.x() + view.width() + margin || y > view.y() + view.height() + margin) {
 				continue;
 			}
-			blips.add(new Blip(entity, kind, x, y, pos.y - selfY, size(kind, view.zoom(), fullscreen)));
+			int percent = category.iconScale() == RadarCategories.SAME_SIZE ? settings.radarIconScale : category.iconScale();
+			Settings.NameTags names = category.hasNames() ? category.names() : Settings.NameTags.NEVER;
+			boolean named = names == Settings.NameTags.ALWAYS || names == Settings.NameTags.FULLSCREEN && fullscreen;
+			blips.add(new Blip(entity, kind, x, y, pos.y - selfY, size(kind, percent / 100.0F, view.zoom(), fullscreen), named));
 		}
 		blips.sort(Comparator.comparingInt(b -> b.kind().ordinal()));
 		return blips;
 	}
 
-	private static boolean shown(Kind kind, Settings settings) {
-		return switch (kind) {
-			case PLAYER -> settings.radarPlayers;
-			case HOSTILE -> settings.radarHostile;
-			case NEUTRAL -> settings.radarNeutral;
-			case PASSIVE -> settings.radarPassive;
-			case ITEM -> settings.radarItems;
-		};
-	}
-
-	private static float size(Kind kind, double zoom, boolean fullscreen) {
-		float scale = Settings.get().radarIconScale / 100.0F;
+	private static float size(Kind kind, float scale, double zoom, boolean fullscreen) {
 		if (kind == Kind.ITEM) {
 			return scale * (fullscreen ? (float) Math.max(2, Math.min(4, zoom)) : 2);
 		}
@@ -148,7 +151,8 @@ public final class Radar {
 		graphics.enableScissor(view.x(), view.y(), view.x() + view.width(), view.y() + view.height());
 		IconBatch icons = players ? IconBatch.direct(graphics) : IconBatch.batched(graphics);
 		Settings settings = Settings.get();
-		boolean names = settings.playerNames == Settings.NameTags.ALWAYS || settings.playerNames == Settings.NameTags.FULLSCREEN && fullscreen;
+		// Mobs' names go over all the mobs' icons, which draw together at the end.
+		List<Blip> named = null;
 		// A round view can't cut icons to its circle, so it shows only those wholly inside it, as drawn:
 		// pixel heads use whole screen pixels per texel and can come out bigger than their size.
 		Circle circle = view.round() ? Circle.in(view) : null;
@@ -169,12 +173,26 @@ public final class Radar {
 				}
 			}
 			icon(icons, blip, alpha, settings);
-			if (names && blip.kind() == Kind.PLAYER) {
-				nameTag(graphics, blip, alpha);
+			// On a round view, a mob's name only where it's wholly inside the circle, like the icons.
+			// Players' names are left as they were.
+			if (blip.named() && (players || circle == null || nameInside(circle, blip))) {
+				if (players) {
+					nameTag(graphics, blip, alpha);
+				} else {
+					if (named == null) {
+						named = new ArrayList<>();
+					}
+					named.add(blip);
+				}
 			}
 			icons.endIcon();
 		}
 		icons.draw();
+		if (named != null) {
+			for (Blip blip : named) {
+				nameTag(graphics, blip, alphaFor(blip.dy()));
+			}
+		}
 		if (measure != null) {
 			measure.draw();
 		}
@@ -211,14 +229,14 @@ public final class Radar {
 		icons.endIcon();
 	}
 
-	/** One blip's icon in the radar style, with a caret if it's well above or below. */
+	/** One blip's icon in the radar style, with a caret if it's well above or below and height arrows are on. */
 	private static void icon(IconBatch icons, Blip blip, int alpha, Settings settings) {
 		switch (settings.radarStyle) {
 			case FRAMED -> framed(icons, blip, alpha);
 			case DOTS -> dot(icons, blip, alpha);
 			default -> pixelHead(icons, blip, alpha, settings.radarTypeOutline);
 		}
-		if (Math.abs(blip.dy()) > CARET_HEIGHT) {
+		if (settings.radarHeightArrows && Math.abs(blip.dy()) > CARET_HEIGHT) {
 			boolean below = blip.dy() < 0;
 			float s = blip.size();
 			if (settings.radarStyle == Settings.RadarStyle.FRAMED) {
@@ -231,6 +249,25 @@ public final class Radar {
 				pixelCaret(icons, blip.x() + s * 0.7F + 1, blip.y() - s * 0.5F, below, alpha);
 			}
 		}
+		if (blip.kind() != Kind.PLAYER && CobblemonPortraits.shiny(blip.entity())) {
+			// On the corner across from the caret's. A mob's icon is 1.6 times its size across.
+			sparkle(icons, blip.x() - blip.size() * 0.8F, blip.y() - blip.size() * 0.8F, alpha);
+		}
+	}
+
+	/**
+	 * A small yellow sparkle, its centre pixel at (cx, cy): a shiny Pokémon. Its colours differ too
+	 * little to tell at an icon's size, and it's the one players go looking for.
+	 */
+	private static void sparkle(IconBatch icons, float cx, float cy, int alpha) {
+		int black = withAlpha(0xFF000000, alpha);
+		int yellow = withAlpha(0xFFFFE14A, alpha);
+		// A plus three pixels across, outlined, with a white middle.
+		icons.fill(cx - 1, cy - 2, cx + 2, cy + 3, black);
+		icons.fill(cx - 2, cy - 1, cx + 3, cy + 2, black);
+		icons.fill(cx, cy - 1, cx + 1, cy + 2, yellow);
+		icons.fill(cx - 1, cy, cx + 2, cy + 1, yellow);
+		icons.fill(cx, cy, cx + 1, cy + 1, withAlpha(0xFFFFFFFF, alpha));
 	}
 
 	/** Master's look: a player's face on a dark disc, a mob's face in a dark box framed in its kind's colour. */
@@ -367,13 +404,26 @@ public final class Radar {
 		}
 	}
 
-	/** The player's name under their head, on the translucent dark plate vanilla puts name tags on. */
+	/** How far under a blip's centre its name starts. A mob's head is drawn 1.6 times its size. */
+	private static float nameOffset(Blip blip) {
+		return blip.size() * (blip.kind() == Kind.PLAYER ? 0.75F : 0.8F) + 3;
+	}
+
+	/** Whether the plate {@link #nameTag} draws would be wholly inside the circle. */
+	private static boolean nameInside(Circle circle, Blip blip) {
+		float half = Minecraft.getInstance().font.width(blip.entity().getName().getString()) / 2.0F;
+		float top = blip.y() + nameOffset(blip) - 1;
+		return circle.contains(blip.x() - half - 1, top) && circle.contains(blip.x() + half, top)
+			&& circle.contains(blip.x() - half - 1, top + 9) && circle.contains(blip.x() + half, top + 9);
+	}
+
+	/** The player's or mob's name under its head, on the translucent dark plate vanilla puts name tags on. */
 	private static void nameTag(GuiGraphicsExtractor graphics, Blip blip, int alpha) {
 		Font font = Minecraft.getInstance().font;
 		String name = blip.entity().getName().getString();
 		int w = font.width(name);
 		graphics.pose().pushMatrix();
-		graphics.pose().translate(blip.x() - w / 2.0F, blip.y() + blip.size() * 0.75F + 3);
+		graphics.pose().translate(blip.x() - w / 2.0F, blip.y() + nameOffset(blip));
 		graphics.fill(-1, -1, w, 8, withAlpha(0x40000000, alpha));
 		graphics.text(font, name, 0, 0, withAlpha(0xFFFFFFFF, alpha), false);
 		graphics.pose().popMatrix();

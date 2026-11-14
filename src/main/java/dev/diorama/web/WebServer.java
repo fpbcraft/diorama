@@ -29,11 +29,19 @@ final class WebServer {
 		this.workers = workers;
 	}
 
-	/** Starts serving {@code folder}, or returns null (logged) if the port can't be had. */
+	/** Starts serving a map with no excluded dimension folders. */
 	static @Nullable WebServer start(Path folder, String address, int port) {
+		return start(folder, address, port, name -> false);
+	}
+
+	/**
+	 * Starts serving {@code folder}, or returns null (logged) if the port can't be had. Nothing is
+	 * served from a folder in it whose name, in lower case, {@code closed} says yes to.
+	 */
+	static @Nullable WebServer start(Path folder, String address, int port, java.util.function.Predicate<String> closed) {
 		try {
 			Path root = folder.toAbsolutePath().normalize();
-			return start(address, port, exchange -> serve(root, exchange));
+			return start(address, port, exchange -> serve(root, closed, exchange));
 		} catch (IOException | RuntimeException e) {
 			Diorama.LOGGER.warn("Diorama's web map can't serve on port {} ({}); set web-map-port to a free one, or 0 to serve the folder yourself", port, e.toString());
 			return null;
@@ -72,7 +80,7 @@ final class WebServer {
 		this.workers.shutdownNow();
 	}
 
-	private static void serve(Path root, HttpExchange exchange) throws IOException {
+	private static void serve(Path root, java.util.function.Predicate<String> closed, HttpExchange exchange) throws IOException {
 		try {
 			String method = exchange.getRequestMethod();
 			String path = exchange.getRequestURI().getPath();
@@ -90,8 +98,11 @@ final class WebServer {
 			// Only public map assets within the real map root.
 			String name = file.getFileName() == null ? "" : file.getFileName().toString();
 			String type = name.endsWith(".jpg") ? "image/jpeg" : name.endsWith(".json") ? "application/json" : name.endsWith(".html") ? "text/html; charset=utf-8" : name.endsWith(".js") ? "text/javascript; charset=utf-8" : name.endsWith(".fsh") ? "text/plain; charset=utf-8" : name.endsWith(".css") ? "text/css; charset=utf-8" : name.endsWith(".png") ? "image/png" : (name.endsWith(".depth") || name.endsWith(".dspr") || name.endsWith(".dshd") || name.endsWith(".ground")) ? "application/octet-stream" : null;
-			if (!file.startsWith(root) || type == null || !Files.isRegularFile(file) || !file.toRealPath().startsWith(root.toRealPath())) {
-				// Outside the folder, also through a link inside it.
+			if (!file.startsWith(root) || type == null
+				|| excluded(root, file, closed)
+				|| !Files.isRegularFile(file) || !file.toRealPath().startsWith(root.toRealPath())
+				|| excluded(root.toRealPath(), file.toRealPath(), closed)) {
+				// Outside the folder, also through a link inside it; or a dimension the settings keep off the map.
 				send(exchange, 404, "text/plain", null);
 				return;
 			}
@@ -134,6 +145,12 @@ final class WebServer {
 		} finally {
 			exchange.close();
 		}
+	}
+
+	/** Also check the real path: a link inside the map root must not alias a closed dimension. */
+	private static boolean excluded(Path root, Path file, java.util.function.Predicate<String> closed) {
+		return file.getNameCount() > root.getNameCount() + 1
+			&& closed.test(file.getName(root.getNameCount()).toString().toLowerCase(java.util.Locale.ROOT));
 	}
 
 	static void send(HttpExchange exchange, int code, String type, byte @Nullable [] body) throws IOException {

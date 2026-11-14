@@ -51,7 +51,7 @@ stonecutter parameters {
 		"import net\\.minecraft\\.client\\.renderer\\.state\\.gui\\.GuiElementRenderState;" to "import net.minecraft.client.gui.render.state.GuiElementRenderState;",
 		"\\.addGuiElement\\(" to ".submitGuiElement(",
 		// ChunkPos was a class with fields.
-		"getPos\\(\\)\\.([xz])\\(\\)" to "getPos().$1",
+		"(getPos|chunkPosition)\\(\\)\\.([xz])\\(\\)" to "$1().$2",
 		// Fabric API's key binding helper.
 		"import net\\.fabricmc\\.fabric\\.api\\.client\\.keymapping\\.v1\\.KeyMappingHelper;" to "import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;",
 		"\\bKeyMappingHelper\\.registerKeyMapping\\(" to "KeyBindingHelper.registerKeyBinding(",
