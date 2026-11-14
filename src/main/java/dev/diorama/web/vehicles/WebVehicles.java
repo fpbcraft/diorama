@@ -20,8 +20,8 @@ import org.joml.Quaterniond;
 /** Server-thread capture, bounded immutable handoff, low-priority craft tracing and publication. */
 public final class WebVehicles implements AutoCloseable {
 	private static final int LIMIT = 64;
-	private record Captured(String provider, UUID id, String dimension, Body.Blocks blocks, double[] pose, String label, String markerGroup) {
-		String key() { return provider + "/" + id; }
+	private record Captured(String provider, UUID id, String dimension, Body.Blocks blocks, double[] pose, String label, String markerGroup) implements DormantShips.Snapshot {
+		public String key() { return provider + "/" + id; }
 	}
 	private record Input(long time, List<Captured> bodies) {}
 	private record CapturedBlocks(Body.Blocks blocks, long version, long time) {}
@@ -33,6 +33,8 @@ public final class WebVehicles implements AutoCloseable {
 
 	private final Map<String, List<Captured>> dimensions = new LinkedHashMap<>(); // server thread
 	private final Map<String,Captured> lastCaptured = new HashMap<>();
+	private final DormantShips dormant = new DormantShips();
+	private final Map<String,java.util.function.BiConsumer<UUID,String>> sableObservers = new HashMap<>();
 	private final LinkedHashMap<String, CapturedBlocks> blocks = new LinkedHashMap<>(); // server thread
 	private final Map<String, Baked> baked = new java.util.concurrent.ConcurrentHashMap<>(); // baker writes; publisher reads
 	private final Thread worker;
@@ -55,17 +57,23 @@ public final class WebVehicles implements AutoCloseable {
 		Looks table = looks;
 		if (closed || table == null || level.getGameTime() % 2 != 0) return;
 		String dimension = level.dimension().identifier().toString();
+		if (!sableObservers.containsKey(dimension)) {
+			java.util.function.BiConsumer<UUID,String> observer = (id,event) -> dormant.event(dimension, "sable_ships/" + id, event);
+			if (SubLevelBodies.observe(level, observer)) sableObservers.put(dimension, observer);
+		}
 		List<Captured> found = new ArrayList<>();
 		List<Body> trains = TrainBodies.bodies(level);
 		collect("create_contraptions", ContraptionBodies.bodies(level.getAllEntities()).stream().filter(b -> !TrainBodies.isCarriage(level.getEntity(b.id()))).toList(), dimension, found);
 		collect("create_trains", trains, dimension, found);
 		collect("sable_ships", SubLevelBodies.bodies(level), dimension, found);
+		dormant.append(dimension, found, lastCaptured, LIMIT);
 		dimensions.put(dimension, List.copyOf(found));
 		List<Captured> all = dimensions.values().stream().flatMap(List::stream).limit(LIMIT).toList();
 		Set<String> keep = new HashSet<>();
 		for (Captured body : all) keep.add(body.key());
 		blocks.keySet().retainAll(keep);
 		lastCaptured.keySet().retainAll(keep);
+		dormant.retain(keep);
 		input = new Input(System.currentTimeMillis(), all);
 	}
 	private void collect(String provider, List<Body> bodies, String dimension, List<Captured> found) {
@@ -78,7 +86,11 @@ public final class WebVehicles implements AutoCloseable {
 			if (found.size() >= LIMIT) break;
 			String key = provider + "/" + body.id();
 			CapturedBlocks old = blocks.get(key);
-			if (old == null && blocks.size() >= LIMIT) continue;
+			if (old == null && blocks.size() >= LIMIT) {
+				String evict = blocks.keySet().stream().filter(dormant::contains).findFirst().orElse(null);
+				if (evict == null) continue;
+				blocks.remove(evict); lastCaptured.remove(evict); dormant.forget(evict);
+			}
 			if ((old == null || old.version != body.version() || now - old.time > 30000) && now >= nextCopy && body.geometryAvailable()) {
 				nextCopy = now + 100;
 				Body.Blocks copy = body.read(looks);
