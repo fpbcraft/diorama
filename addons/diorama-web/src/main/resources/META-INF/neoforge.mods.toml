@@ -1,0 +1,28 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "diorama_web"
+version = "${version}"
+displayName = "Diorama Web Assets"
+description = "Optional server frontend bundle for independent web UI updates."
+authors = "FPBCraft"
+
+[[dependencies.diorama_web]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.178,)"
+side = "SERVER"
+
+[[dependencies.diorama_web]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+side = "SERVER"
+
+[[dependencies.diorama_web]]
+modId = "diorama"
+type = "required"
+versionRange = "[0.9.0,)"
+side = "SERVER"

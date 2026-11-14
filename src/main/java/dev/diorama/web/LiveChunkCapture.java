@@ -39,7 +39,7 @@ final class LiveChunkCapture {
 			surface[z * 16 + x] = chunk.getHeight(Heightmap.Types.WORLD_SURFACE, x, z);
 			solid[z * 16 + x] = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
 		}
-		SavedChunk saved = new SavedChunk(chunk.getPos().x(), chunk.getPos().z(), true, states, biomes, block, sky, surface, solid);
+		SavedChunk saved = new SavedChunk(chunk.getPos().x(), chunk.getPos().z(), true, states, biomes, block, sky, surface, solid, dev.diorama.data.DomumMaterials.capture(chunk));
 		SavedChunk[] around = new SavedChunk[9]; around[4] = saved;
 		return ChunkSnapshot.fromSave(saved, around, level, 2);
 	}

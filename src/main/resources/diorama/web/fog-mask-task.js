@@ -1,4 +1,4 @@
-import { fogMask } from './fog-mask.js';
+import { cloudMask } from './fog-mask.js';
 
 /** One active calculation and one latest pending mask; stale zoom results never reach the view. */
 export class FogMaskTask {
@@ -30,7 +30,7 @@ export class FogMaskTask {
     }
     queueMicrotask(()=>{
       this.busy=false;this.current=null;
-      if(!this.disposed&&job.id===this.latest?.id)this.done(fogMask(job.input.sharp,job.input.texel,job.input.rounded,job.input.steps),job.context);
+      if(!this.disposed&&job.id===this.latest?.id)this.done(cloudMask(job.input.sharp,job.input.texel,job.input.rounded,job.input.steps),job.context);
       this.next();
     });
   }

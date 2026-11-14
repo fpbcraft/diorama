@@ -9,10 +9,14 @@ try {
   const source = join(temp,"dev/diorama/web"), bake = join(temp,"dev/diorama/bake");
   await mkdir(source,{recursive:true}); await mkdir(bake,{recursive:true});
   await writeFile(join(bake,"TileSurface.java"), "package dev.diorama.bake; public record TileSurface(int width, int height, float[] near) {}");
-  const files = [join(bake,"TileSurface.java")];
-  for (const name of ["DirtyChunks", "WebDepth"]) { const out=join(source,`${name}.java`); await copyFile(resolve(root,`src/main/java/dev/diorama/web/${name}.java`),out); files.push(out); }
+  const logger=join(temp,"dev/diorama/Diorama.java");
+  await writeFile(logger,'package dev.diorama; public final class Diorama { public static final Log LOGGER=new Log(); public static class Log { public void warn(String s,Object... a){} public void info(String s,Object... a){} } }');
+  const files = [join(bake,"TileSurface.java"),logger];
+  for (const name of ["DirtyChunks", "WebDepth", "WebTileQueue", "WebQueueStatus"]) { const out=join(source,`${name}.java`); await copyFile(resolve(root,`src/main/java/dev/diorama/web/${name}.java`),out); files.push(out); }
   const test=join(source,"HybridTerrainTest.java"); await copyFile(resolve(root,"tests/web/HybridTerrainTest.java"),test); files.push(test);
+  const queueTest=join(source,"WebQueueTest.java");await copyFile(resolve(root,"tests/web/WebQueueTest.java"),queueTest);files.push(queueTest);
   const java=process.env.JAVA_HOME ? join(process.env.JAVA_HOME,"bin") : "/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home/bin";
   execFileSync(join(java,"javac"),["-d",temp,...files],{stdio:"inherit"});
   execFileSync(join(java,"java"),["-cp",temp,"dev.diorama.web.HybridTerrainTest"],{stdio:"inherit"});
+  execFileSync(join(java,"java"),["-cp",temp,"dev.diorama.web.WebQueueTest"],{stdio:"inherit"});
 } finally { await rm(temp,{recursive:true,force:true}); }

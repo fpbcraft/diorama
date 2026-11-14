@@ -36,3 +36,20 @@ test('mask worker coalesces queued views and discards old zoom results',()=>{
   task.submit({sharp:new Float32Array(1)},{view:4});task.cancel();worker.onmessage({data:{id:sent[2].id,mask:{}}});
   assert.equal(applied.length,1);task.dispose();assert.equal(worker.terminated,true);
 });
+
+test('web cloud masks preserve clear interiors and opaque unknown cells at every zoom',async()=>{
+  const {cloudMask}=await import('../../src/main/resources/diorama/web/fog-mask.js');
+  for(const texel of [2,16,256]){
+    const sharp=new Float32Array(256*256);for(let y=40;y<216;y++)for(let x=40;x<216;x++)sharp[y*256+x]=1;
+    const mask=cloudMask(sharp,texel,true);
+    assert.equal(mask.rgba[(128*256+128)*4],255);assert.equal(mask.detail[(128*256+128)*4+2],255);
+    assert.equal(mask.rgba[0],0);assert.equal(mask.detail[2],0);
+    for(let i=0;i<sharp.length;i++)assert.ok(mask.known[i]<=sharp[i]);
+  }
+});
+
+test('overview clouds retain broad screen-space banks instead of dense repeated noise',async()=>{
+ const {cloudSpan}=await import('../../src/main/resources/diorama/web/fog-gpu.js');
+ for(const scale of [.01,.05,.15,.5])assert.ok(cloudSpan(scale)*scale>=1200);
+ assert.equal(cloudSpan(2),2048);
+});

@@ -32,6 +32,9 @@ public final class Nbt {
 		return tag.getStringOr(name, "");
 	}
 
+	public static java.util.Set<String> keys(CompoundTag tag){return tag.keySet();}
+	public static int integer(CompoundTag tag,String key){return tag.getIntOr(key,0);}
+
 	public static int sectionY(CompoundTag section) {
 		return section.getByteOr("Y", (byte) 0);
 	}
@@ -63,6 +66,9 @@ public final class Nbt {
 	public static String string(CompoundTag tag, String name) {
 		return tag.getString(name);
 	}
+
+	public static java.util.Set<String> keys(CompoundTag tag){return tag.getAllKeys();}
+	public static int integer(CompoundTag tag,String key){return tag.getInt(key);}
 
 	public static int sectionY(CompoundTag section) {
 		return section.getByte("Y");

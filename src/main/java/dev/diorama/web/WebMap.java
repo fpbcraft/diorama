@@ -90,6 +90,8 @@ public final class WebMap {
 	private final LiveTerrain live;
 	private dev.diorama.web.vehicles.WebVehicles vehicles;
 	private final WebWaypoints waypoints;
+	private WebQueueStatus queueStatus;
+	private final WebTracks tracks=new WebTracks();
 	private final VanillaTable table;
 	private final Path modsFolder;
 	final Path folder;
@@ -139,9 +141,11 @@ public final class WebMap {
 			return;
 		}
 		WebMap map = new WebMap(server, settings, table, modsFolder);
+		map.waypoints.icons(configFolder.resolve("diorama-web-appearance/waypoint-icons.json"));
 		if (map.start()) {
 			running = map;
 			map.waypoints.start();
+			map.queueStatus=new WebQueueStatus(map.folder,map::queuedStatus,()->map.paused);
 			if (settings.vehicles()) map.vehicles = new dev.diorama.web.vehicles.WebVehicles(map.folder, table, modsFolder,
 				() -> !map.stopping && !map.paused && !map.serverBehind() && !server.isCurrentlySaving());
 		}
@@ -153,7 +157,7 @@ public final class WebMap {
 		running = null;
 		if (map != null) {
 			if (map.vehicles != null) map.vehicles.close();
-			map.waypoints.close();
+			map.waypoints.close();if(map.queueStatus!=null)map.queueStatus.close();
 			map.stop();
 		}
 	}
@@ -176,6 +180,7 @@ public final class WebMap {
 		WebMap map = running;
 		if (map == null || map.stopping || map.paused || map.serverBehind() || map.server.isCurrentlySaving()) return;
 		try {
+			if (level == map.server.overworld() && map.tracks.tick()) synchronized(map.wake){map.wake.notifyAll();}
 			if (map.vehicles != null) map.vehicles.tick(level);
 			if (map.live.capture(level, map.settings.everyChunk())) synchronized (map.wake) { map.wake.notifyAll(); }
 		} catch (RuntimeException | LinkageError error) {
@@ -218,11 +223,13 @@ public final class WebMap {
 		try {
 			Files.createDirectories(this.folder);
 			WebPins.install(this.folder);
-			for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
-			for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js"}) {
-				try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
-					if (page != null) {
-						Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
+			if (!WebFrontendAssets.install(this.folder)) {
+				for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
+				for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js"}) {
+					try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
+						if (page != null) {
+							Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
+						}
 					}
 				}
 			}
@@ -373,6 +380,10 @@ public final class WebMap {
 					continue;
 				}
 				this.handleRequests(looks);
+				for(var key:this.tracks.update(looks)){
+					Dimension dimension=this.dimensions.get(key.dimension());if(dimension==null)continue;
+					long tile=WebTileQueue.key(key.tu(),key.tv());if(dimension.tiles[0].contains(tile))dimension.pending.add(tile);
+				}
 				this.handleLiveUpdates(looks);
 				boolean coverageWork=false;
 				for(Dimension dimension:this.dimensions.values()){
@@ -481,6 +492,7 @@ public final class WebMap {
 	 */
 	private void waitForChanges(Properties progress, long notBefore) {
 		while (!this.stopping && !this.redrawAll.get()) {
+			if(this.tracks.hasUpdates())return;
 			long wait = Math.max(CHECK_MS, notBefore - System.currentTimeMillis());
 			synchronized (this.wake) {
 				try {
@@ -489,7 +501,7 @@ public final class WebMap {
 					return;
 				}
 			}
-			if (this.stopping || this.redrawAll.get() || !this.requested.isEmpty() || this.live.hasUpdates()) return;
+			if (this.stopping || this.redrawAll.get() || !this.requested.isEmpty() || this.live.hasUpdates() || this.tracks.hasUpdates()) return;
 			if (System.currentTimeMillis() < notBefore) {
 				continue;
 			}
@@ -590,6 +602,20 @@ public final class WebMap {
 		}
 	}
 
+	private Map<String,WebQueueStatus.Frame> queuedStatus() {
+		Map<String,WebQueueStatus.Frame> result=new HashMap<>();
+		for(Dimension dimension:this.dimensions.values()){
+			Set<Long> waiting=this.live.waiting(dimension.id),cells=new java.util.LinkedHashSet<>();
+			for(long chunk:waiting){
+				Dimension.Drawn drawn=dimension.drawn.get(chunk);
+				dimension.markTiles((int)(chunk>>32),(int)chunk,drawn==null?dimension.maximumY:drawn.top(),drawn==null?dimension.minimumY:drawn.floor(),cells);
+				if(cells.size()>=WebQueueStatus.LIMIT)break;
+			}
+			for(long tile:dimension.pending.first(WebQueueStatus.LIMIT)){cells.add(tile);if(cells.size()>=WebQueueStatus.LIMIT)break;}
+			result.put(dimension.id,new WebQueueStatus.Frame(dimension.pending.size(),waiting.size(),cells.size()>=WebQueueStatus.LIMIT,List.copyOf(cells)));
+		}return result;
+	}
+
 	/** What the page reads first: the projection, and each dimension's tiles at each zoom. */
 	void writeMapJson() {
 		StringBuilder json = new StringBuilder();
@@ -601,7 +627,7 @@ public final class WebMap {
 			.append(",\"land\":\"").append(this.settings.everyChunk() ? "generated" : "visited").append('"')
 			.append(",\"depth\":").append(this.settings.depth())
 			.append(",\"vehicleFeed\":\"assets/diorama-vehicles/scene.json\"")
-			.append(",\"markerFeed\":\"markers.json\"")
+			.append(",\"markerFeed\":\"markers.json\",\"queueFeed\":\"queue-status.json\"")
 			.append(",\"fogCoverage\":true,\"roundedFog\":").append(dev.diorama.MapStyle.get().roundedFog())
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())
@@ -648,7 +674,10 @@ public final class WebMap {
 		 * {@link ChunkSnapshot#key}: a chunk saved with the same blocks needs no redraw, and one that
 		 * got lower still redraws the tiles it used to reach.
 		 */
-		private final Map<Long, Drawn> drawn = new HashMap<>();
+		private final Set<Long> lossless = new HashSet<>();
+		private final Map<Long, Drawn> drawn = new ConcurrentHashMap<>();
+		private final int minimumY,maximumY;
+		private final boolean ceiling;
 		/** Tiles on disk, per zoom level, as {@link #key}. */
 		@SuppressWarnings("unchecked")
 		private final Set<Long>[] tiles = new Set[MAX_ZOOM + 1];
@@ -661,6 +690,7 @@ public final class WebMap {
 			this.folder = map.folder.resolve(id.replace(':', '_').replace('/', '_'));
 			this.pending = new WebTileQueue(this.folder);
 			this.coverageRepair = new WebCoverageRepair(this.folder);
+			this.minimumY=level.getMinY();this.maximumY=level.getMaxY();this.ceiling=level.dimensionType().hasCeiling();
 			this.queuedCount = this.pending.size();
 			this.save = ServerSave.of(level);
 			int roof = level.dimensionType().hasCeiling() ? level.getMinY() + level.dimensionType().logicalHeight() : ChunkSource.NO_ROOF;
@@ -714,6 +744,7 @@ public final class WebMap {
 							if (sep > 0) {
 								int u=Integer.parseInt(name.substring(0,sep)),v=Integer.parseInt(name.substring(sep+1,name.length()-4));
 								this.tiles[z].add(key(u,v));
+								if(z==0&&Files.isRegularFile(WebTiles.lossless(file)))this.lossless.add(key(u,v));
 								if(!level.dimensionType().hasCeiling())this.coverageRepair.add(z,u,v);
 							}
 						} catch (NumberFormatException e) {
@@ -1016,12 +1047,15 @@ public final class WebMap {
 				}
 				try {
 					Path depthFile = this.folder.resolve("0").resolve(u + "_" + v + ".depth");
-					if (this.map.settings.depth()) {
+					if (this.map.settings.depth() || this.map.tracks.contains(this.id,u,v)) {
 						try {
 							var surface = TileBaker.surface(new TileKey(TileKey.SURFACE, u, v), 0, this.source, looks, false,
 								0, 0, Projection.TILE_PIXELS, Projection.TILE_PIXELS);
-							WebDepth.write(depthFile, surface);
-							dev.diorama.web.vehicles.VehicleGround.write(depthFile.resolveSibling(u + "_" + v + ".ground"), surface);
+							this.map.tracks.composite(this.id,u,v,pixels,surface);
+							if(this.map.settings.depth()){
+								WebDepth.write(depthFile, surface);
+								dev.diorama.web.vehicles.VehicleGround.write(depthFile.resolveSibling(u + "_" + v + ".ground"), surface);
+							}else{Files.deleteIfExists(depthFile);Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));}
 						} catch (RuntimeException | LinkageError | StackOverflowError error) {
 							Files.deleteIfExists(depthFile);
 							Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));
@@ -1031,6 +1065,9 @@ public final class WebMap {
 						Files.deleteIfExists(depthFile);
 						Files.deleteIfExists(depthFile.resolveSibling(u + "_" + v + ".ground"));
 					}
+					boolean rail=this.map.tracks.contains(this.id,u,v);
+					WebTiles.writeLossless(WebTiles.file(this.folder,0,u,v),pixels,rail);
+					if(rail)this.lossless.add(tile);else this.lossless.remove(tile);
 					long size = WebTiles.write(WebTiles.file(this.folder, 0, u, v), pixels);
 					if (size > 0) this.tiles[0].add(tile);
 					else this.tiles[0].remove(tile);
@@ -1162,7 +1199,7 @@ public final class WebMap {
 			int top = maxY + 1;
 			// Under a roof the map looks down from below it, as far as the dimension's floor; the
 			// height maps there stop at the roof.
-			int bottom = this.level.dimensionType().hasCeiling() ? this.level.getMinY() : Math.max(floorY, this.level.getMinY());
+			int bottom = this.ceiling ? this.minimumY : Math.max(floorY, this.minimumY);
 			double v0 = z0 * sin - (top + TileBaker.SHADOW_REACH_Y) * cos;
 			double v1 = z1 * sin - bottom * cos;
 			int u0 = Math.floorDiv(x0, Projection.TILE_UNITS);
@@ -1249,9 +1286,13 @@ public final class WebMap {
 		}
 
 		void json(StringBuilder json) {
-			json.append("{\"id\":\"").append(this.id).append("\",\"folder\":\"").append(this.folder.getFileName())
+			json.append("{\"losslessTiles\":[");boolean firstLossless=true;
+			for(long key:this.lossless){if(!firstLossless)json.append(',');firstLossless=false;json.append('[').append((int)(key>>32)).append(',').append((int)key).append(']');}
+			json.append("],");
+			json.append("\"id\":\"").append(this.id).append("\",\"folder\":\"").append(this.folder.getFileName())
 				.append("\",\"fog\":\"").append(this.level.dimensionType().hasCeiling() ? "none" : "fog")
-				.append("\",\"zoomLevels\":").append(Math.max(1, this.zoomLevels)).append(",\"versions\":true,\"tiles\":[");
+				.append("\",\"referenceY\":").append(this.level.getChunkSource().getGenerator().getSpawnHeight(this.level))
+				.append(",\"zoomLevels\":").append(Math.max(1, this.zoomLevels)).append(",\"versions\":true,\"tiles\":[");
 			for (int z = 0; z < Math.max(1, this.zoomLevels); z++) {
 				if (z > 0) {
 					json.append(',');

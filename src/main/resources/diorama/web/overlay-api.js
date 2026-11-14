@@ -15,9 +15,9 @@ export const screenPosition = (point, state) => {
 };
 
 /** A composited overlay frame never calls the terrain renderer or its tile loader. */
-export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [], vehicleFeed = () => undefined }) => {
+export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [], vehicleFeed = () => undefined, queueFeed = () => undefined }) => {
   const events = new EventTarget();
-  let visibility={clouds:true,sablePins:true,trainPins:true,sharedMarkers:true};
+  let visibility={clouds:true,sablePins:true,trainPins:true,sharedMarkers:true,queuedTiles:false,allVehicles:false,loaded:false,claims:false,entities:false,heatmap:false};
   try {const saved=JSON.parse(localStorage.getItem('diorama-map-visibility')||'{}');for(const key of Object.keys(visibility))if(typeof saved[key]==='boolean')visibility[key]=saved[key];}catch{}
 
   const overlays = new Map();
@@ -54,9 +54,14 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
     setDimension,
     depthTiles,
     vehicleFeed,
+    queueFeed,
+    registerVisibility(key,label,icon='layers') {
+      if(!Object.hasOwn(visibility,key))return;
+      events.dispatchEvent(new CustomEvent('visibility-option',{detail:{key,label,icon}}));
+    },
     visible: key => visibility[key] !== false,
     setVisible(key,value) {
-      if(!Object.hasOwn(visibility,key)||typeof value!=='boolean')return;
+      if(!Object.hasOwn(visibility,key)||typeof value!=='boolean'||visibility[key]===value)return;
       visibility[key]=value;
       try{localStorage.setItem('diorama-map-visibility',JSON.stringify(visibility));}catch{}
       events.dispatchEvent(new CustomEvent('visibility',{detail:{key,value}}));invalidate();

@@ -8,12 +8,16 @@ export class MapControls {
     const body=document.createElement('div');body.className='map-menu-body panel';
     const title=document.createElement('strong');title.textContent='Map visibility';body.append(title);
     const note=document.createElement('small');note.textContent='Show or hide map elements';body.append(note);
-    for(const [key,label,icon]of [['clouds','Clouds','cloud'],['sablePins','Sable vehicle pins','ship'],['trainPins','Train pins','train'],['sharedMarkers','Shared waypoint sets','pin']]){
+    const add=(key,label,icon)=>{
+      if(body.querySelector(`input[data-visibility="${key}"]`))return;
       const row=document.createElement('label'),picture=document.createElement('span'),text=document.createElement('span'),input=document.createElement('input');picture.className='map-setting-icon';picture.innerHTML=mapIcon(icon);text.textContent=label;input.type='checkbox';input.setAttribute('role','switch');input.checked=api.visible(key);input.dataset.visibility=key;input.onchange=()=>api.setVisible(key,input.checked);row.append(picture,text,input);body.append(row);
-    }
+    };
+    for(const [key,label,icon]of [['clouds','Clouds','cloud'],['sablePins','Sable vehicle pins','ship'],['trainPins','Train pins','train'],['allVehicles','Include unnamed vehicles','ship'],['sharedMarkers','Shared waypoint sets','pin'],['queuedTiles','Queued tile updates','layers']])add(key,label,icon);
+    api.events.addEventListener('visibility-option',event=>{const {key,label,icon}=event.detail;add(key,label,icon);},{signal:this.abort.signal});
     this.root.append(summary,body);document.getElementById('map-tools').append(this.root);
     document.addEventListener('pointerdown',event=>{if(!this.root.contains(event.target))this.root.open=false;},{signal:this.abort.signal});
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&this.root.open){this.root.open=false;summary.focus();}},{signal:this.abort.signal});
+    api.events.addEventListener('dispose',()=>this.dispose(),{once:true,signal:this.abort.signal});
     api.events.addEventListener('visibility',()=>{for(const input of body.querySelectorAll('input'))input.checked=api.visible(input.dataset.visibility);},{signal:this.abort.signal});
   }
   dispose(){this.abort.abort();this.root.remove();}

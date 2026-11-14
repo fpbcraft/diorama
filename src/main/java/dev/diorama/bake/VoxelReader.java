@@ -618,7 +618,8 @@ public final class VoxelReader {
 				return AIR_SECTION;
 			}
 			ChunkSnapshot.SectionCopycats copycats = this.looks == null ? null : this.snapshot.copycats(index);
-			if (copycats == null) {
+			var materials=this.looks==null?java.util.List.<dev.diorama.data.DomumMaterials.Cell>of():this.snapshot.materials(index);
+			if (copycats == null && materials.isEmpty()) {
 				if (uniform != null) {
 					return new Section(this.id(this.snapshot.turned(uniform)), null, null, null, null);
 				}
@@ -635,10 +636,11 @@ public final class VoxelReader {
 			} else {
 				ids = this.byBlock(index);
 			}
-			for (int i = 0; i < copycats.at().length; i++) {
+			for (int i = 0; copycats!=null && i < copycats.at().length; i++) {
 				int at = copycats.at()[i];
 				ids[at] = this.looks.copycat(ids[at], Block.BLOCK_STATE_REGISTRY.getId(copycats.material()[i]));
 			}
+			for(var cell:materials){int at=((cell.y()&15)<<8)|(cell.z()<<4)|cell.x();ids[at]=this.looks.materiallyTextured(ids[at],cell.slots());}
 			return new Section(-1, ids, null, null, null);
 		}
 

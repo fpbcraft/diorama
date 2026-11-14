@@ -45,48 +45,49 @@ final class WebTileQueue {
 		return (long) u << 32 | v & 0xffffffffL;
 	}
 
-	void addAll(Collection<Long> tiles) {
+	synchronized void addAll(Collection<Long> tiles) {
 		this.entries.addAll(tiles);
 	}
 
 	/** Operator-requested tiles take priority over background discovery tasks. */
-	void addFirst(Collection<Long> tiles) {
+	synchronized void addFirst(Collection<Long> tiles) {
 		LinkedHashSet<Long> first = new LinkedHashSet<>(tiles);
 		first.addAll(this.entries);
 		this.entries.clear();
 		this.entries.addAll(first);
 	}
 
-	void add(long tile) {
+	synchronized void add(long tile) {
 		this.entries.add(tile);
 	}
 
-	long first() {
+	synchronized long first() {
 		return this.entries.iterator().next();
 	}
 
-	void remove(long tile) {
+	synchronized void remove(long tile) {
 		this.entries.remove(tile);
 	}
 
-	boolean isEmpty() {
+	synchronized boolean isEmpty() {
 		return this.entries.isEmpty();
 	}
 
-	int size() {
+	synchronized int size() {
 		return this.entries.size();
 	}
 
-	Set<Long> snapshot() {
+	synchronized Set<Long> snapshot() {
 		return new LinkedHashSet<>(this.entries);
 	}
 
-	void clear() {
+	synchronized java.util.List<Long> first(int limit) {return entries.stream().limit(limit).toList();}
+	synchronized void clear() {
 		this.entries.clear();
 	}
 
 	/** Returns false when a checkpoint failed: the scanner must not advance. */
-	boolean save() {
+	synchronized boolean save() {
 		Path part = this.file.resolveSibling(this.file.getFileName() + ".part");
 		StringBuilder lines = new StringBuilder("# Diorama base JPEG tiles awaiting render\n");
 		for (long key : this.entries) {

@@ -21,6 +21,7 @@ final class WebWaypoints implements AutoCloseable {
 		}
 	}
 	private final Path file,root;
+	private Map<String,dev.diorama.render.PinArt.Image> icons=Map.of();
 	private final Map<UUID,List<Marker>> owners=new LinkedHashMap<>();
 	private final Map<UUID,Long> next=new HashMap<>();
 	private final AtomicBoolean queued=new AtomicBoolean();
@@ -61,6 +62,7 @@ final class WebWaypoints implements AutoCloseable {
 		if(markers.equals(owners.getOrDefault(owner,List.of())))return false;
 		if(markers.isEmpty())owners.remove(owner);else owners.put(owner,List.copyOf(markers));revision++;return true;
 	}
+	void icons(Path file){icons=WebWaypointIcons.load(file);}
 	void start(){schedule();}
 	private void schedule(){if(!closed&&queued.compareAndSet(false,true))writer.execute(this::flush);}
 	private void flush(){
@@ -72,11 +74,14 @@ final class WebWaypoints implements AutoCloseable {
 				List<Map<String,Object>> published=new ArrayList<>();Set<String> images=new HashSet<>();
 				for(var entry:snapshot.entrySet())for(Marker marker:entry.getValue()) {
 					String id=UUID.nameUUIDFromBytes((entry.getKey()+"/"+marker.id).getBytes(StandardCharsets.UTF_8)).toString();
-					String icon=WebPins.iconName(marker.icon),image="assets/diorama-markers/pin-"+Integer.toHexString(marker.color&0xffffff)+"-"+icon+".png";
-					var art=WebPins.art(marker.color|0xff000000,icon);
+					String icon=WebPins.iconName(marker.icon);
+					var custom=icons.get(marker.icon);
+					String key=custom==null?icon:WebPins.imageKey(custom);
+					String image="assets/diorama-markers/pin-"+Integer.toHexString(marker.color&0xffffff)+"-"+key+".png";
+					var art=custom==null?WebPins.art(marker.color|0xff000000,icon):dev.diorama.render.PinArt.iconPin(custom,marker.color|0xff000000);
 					if(!Files.isRegularFile(root.resolve(image)))WebPins.write(root.resolve(image),art);
 					images.add(root.resolve(image).getFileName().toString());
-					published.add(Map.ofEntries(Map.entry("id",id),Map.entry("name",marker.name),Map.entry("initials",icon.isEmpty()?marker.initials:""),Map.entry("icon",image),Map.entry("dimension",marker.dimension),Map.entry("x",marker.x),Map.entry("y",marker.y),Map.entry("z",marker.z),Map.entry("width",art.image().width),Map.entry("height",art.image().height),Map.entry("anchorX",art.anchorX()),Map.entry("anchorY",art.anchorY())));
+					published.add(Map.ofEntries(Map.entry("id",id),Map.entry("name",marker.name),Map.entry("initials",icon.isEmpty()&&custom==null?marker.initials:""),Map.entry("icon",image),Map.entry("dimension",marker.dimension),Map.entry("x",marker.x),Map.entry("y",marker.y),Map.entry("z",marker.z),Map.entry("width",art.image().width),Map.entry("height",art.image().height),Map.entry("anchorX",art.anchorX()),Map.entry("anchorY",art.anchorY())));
 				}
 				atomic(file,new Gson().toJson(snapshot));atomic(root.resolve("markers.json"),new Gson().toJson(Map.of("markers",published)));
 				try(var files=Files.newDirectoryStream(root.resolve("assets/diorama-markers"),"pin-*.png")){for(Path image:files)if(!images.contains(image.getFileName().toString()))Files.deleteIfExists(image);}

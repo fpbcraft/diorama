@@ -345,7 +345,7 @@ public final class MapSession {
 	 * isn't what the map last saw. A chunk the map hasn't seen yet gets it in its first snapshot.
 	 */
 	public static void blockEntityChanged(ClientLevel level, BlockPos pos) {
-		if (!Copycats.INSTALLED || current == null || current.level != level) {
+		if ((!Copycats.INSTALLED && !dev.diorama.data.DomumMaterials.INSTALLED) || current == null || current.level != level) {
 			return;
 		}
 		if (SubLevels.holds(level, pos.getX() >> 4, pos.getZ() >> 4)) {
@@ -353,7 +353,8 @@ public final class MapSession {
 			return;
 		}
 		ChunkSnapshot snapshot = current.map.worldChunk(pos.getX() >> 4, pos.getZ() >> 4);
-		if (snapshot == null || Copycats.material(level.getBlockEntity(pos)) == snapshot.copycatMaterial(pos.getX(), pos.getY(), pos.getZ())) {
+		if (snapshot == null || Copycats.material(level.getBlockEntity(pos)) == snapshot.copycatMaterial(pos.getX(), pos.getY(), pos.getZ())
+			&& dev.diorama.data.DomumMaterials.read(level.getBlockEntity(pos)).equals(snapshot.materialSlots(pos.getX(),pos.getY(),pos.getZ()))) {
 			return;
 		}
 		int surface = current.visibleFromSky(pos) ? MapLevel.CHANGED_SURFACE : 0;

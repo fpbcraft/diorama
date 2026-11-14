@@ -126,6 +126,7 @@ public final class ContraptionBodies {
 			}
 			int[] states = CraftBlocks.empty(sx, sy, sz);
 			Int2IntMap copycats = new Int2IntOpenHashMap();
+			var materials=new java.util.HashMap<Integer,Map<String,BlockState>>();
 			for (Map.Entry<?, ?> entry : map.entrySet()) {
 				BlockPos pos = (BlockPos) entry.getKey();
 				BlockState state = ((StructureTemplate.StructureBlockInfo) entry.getValue()).state();
@@ -134,7 +135,7 @@ public final class ContraptionBodies {
 				}
 				int index = CraftBlocks.index(sx, sz, pos.getX() - x0, pos.getY() - y0, pos.getZ() - z0);
 				states[index] = Block.BLOCK_STATE_REGISTRY.getId(state);
-				if (Copycats.INSTALLED && state.hasBlockEntity()) {
+				if ((Copycats.INSTALLED || dev.diorama.data.DomumMaterials.INSTALLED) && state.hasBlockEntity()) {
 					BlockEntity entity = null;
 					if (level instanceof net.minecraft.server.level.ServerLevel) {
 						var tag = ((StructureTemplate.StructureBlockInfo) entry.getValue()).nbt();
@@ -146,11 +147,12 @@ public final class ContraptionBodies {
 							*///?}
 						}
 					} else if (blockEntity != null && blockEntity.invoke(held, pos) instanceof BlockEntity clientEntity) entity = clientEntity;
+					var slots=dev.diorama.data.DomumMaterials.read(entity);if(!slots.isEmpty())materials.put(index,slots);
 					BlockState material = Copycats.material(entity);
 					if (material != null) copycats.put(index, Block.BLOCK_STATE_REGISTRY.getId(material));
 				}
 			}
-			return new Body.Blocks(new CraftBlocks(sx, sy, sz, states, copycats), new int[] {x0, y0, z0});
+			return new Body.Blocks(new CraftBlocks(sx, sy, sz, states, copycats,materials), new int[] {x0, y0, z0});
 		} catch (LinkageError e) {
 			fail(e);
 			return null;

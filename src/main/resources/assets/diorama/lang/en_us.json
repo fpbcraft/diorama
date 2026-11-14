@@ -200,6 +200,7 @@
 	"diorama.settings.show_railway_trains": "Moving trains",
 	"diorama.settings.show_sable_ship_shapes": "Ship block imagery",
 	"diorama.settings.show_sable_ship_markers": "Ship name markers",
+	"diorama.settings.show_all_vehicle_markers": "Include unnamed vehicles",
 	"diorama.settings.chunk_grid": "Chunk grid",
 	"diorama.settings.slime_chunks": "Slime chunks",
 	"diorama.settings.spawn_spots": "Spawn spots",

@@ -42,7 +42,7 @@
     .map-icon-button {display:grid;place-items:center;box-sizing:border-box;width:44px;height:var(--map-control-height);color:var(--text);cursor:pointer;list-style:none;}
     .map-icon-button::-webkit-details-marker{display:none;}
     .map-menu[open]>.map-icon-button{border-color:#91d1c0;box-shadow:0 0 0 1px #91d1c066;}
-    .map-menu-body{position:absolute;right:0;top:calc(var(--map-control-height) + 10px);width:min(320px,calc(100vw - 24px));box-sizing:border-box;padding:18px;background:var(--panel);box-shadow:var(--map-shadow);}
+    .map-menu-body{position:absolute;right:0;top:calc(var(--map-control-height) + 10px);width:min(320px,calc(100vw - 24px));box-sizing:border-box;padding:18px;max-height:calc(100dvh - 150px);overflow:auto;background:var(--panel);box-shadow:var(--map-shadow);}
     .map-menu-body>strong{display:block;font-size:18px;}.map-menu-body>small{display:block;color:var(--muted);margin:4px 0 12px;}
     .map-menu-body label{display:flex;align-items:center;gap:12px;min-height:58px;border-top:1px solid var(--line);cursor:pointer;}
     .map-setting-icon{display:grid;place-items:center;width:36px;height:36px;background:#ffffff0b;border:1px solid var(--line);border-radius:8px;flex:none;}
@@ -51,7 +51,8 @@
     .map-menu-body input[role=switch]:checked{background:#39ad83;}.map-menu-body input[role=switch]:checked:before{transform:translateX(15px);}
     .map-menu-body input:focus-visible,.map-icon-button:focus-visible{outline:2px solid #a1e5cf;outline-offset:3px;}
     .map-update{position:fixed;right:68px;bottom:calc(var(--map-bottom) + 54px);padding:5px 8px;color:var(--muted);font-size:11px;pointer-events:auto;}
-    @media(max-width:760px){.map-tools{top:calc(var(--map-top) + 54px);}.map-update{right:68px;}}
+    #dimension-select{display:none;color:var(--text);font:inherit;height:44px;padding:0 10px;width:125px;box-sizing:border-box;}
+    @media(max-width:760px){#dims{display:none!important;}#dimension-select{display:block;width:110px;}.map-tools{top:var(--map-top);}.map-update{right:68px;}.map-menu-body{max-height:calc(100dvh - 90px);}}
     button:hover,.map-icon-button:hover{background-color:#ffffff0c;}
     @media(prefers-reduced-motion:reduce){.map-menu-body input[role=switch]:before{transition:none;}}
 </style>
@@ -60,13 +61,14 @@
 <canvas id="map" aria-label="Map"></canvas>
 <canvas id="fog" aria-hidden="true" style="pointer-events:none"></canvas>
 <div id="overlays" style="position:fixed;inset:0;pointer-events:none"></div>
-<div class="bar"><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
+<div class="bar"><select id="dimension-select" class="panel" aria-label="Dimension"></select><div class="dims panel" id="dims"></div><button class="follow panel on" id="follow" hidden aria-pressed="true" title="Keep the map centred on you. Turns off when you move the map.">Follow</button></div>
 <div id="map-tools" class="map-tools"></div>
 <time id="map-update" class="map-update panel" hidden></time>
 <div class="zoom panel"><button id="in" aria-label="Zoom in">+</button><button id="out" aria-label="Zoom out">&minus;</button></div>
 <div class="where panel" id="where" hidden></div>
 <div class="map-empty" id="empty"></div>
 <script type="module">
+import { WebQueue } from "./web-queue.js";
 import { MapControls } from "./map-controls.js";
 import { WebMarkers } from "./web-markers.js";
 import { coverageSources } from "./fog-coverage.js";
@@ -80,6 +82,7 @@ const ctx = canvas.getContext("2d");
 const fog = new WebFog(document.getElementById("fog"));
 let map = null;          // map.json
 let dim = null;          // the dimension shown
+let lossless = new Set();
 let present = [];        // per zoom, a Map of "u,v" -> the tile's version
 // The view: the map point at the middle of the screen, in map units (a block across), and how many CSS pixels a unit takes.
 let view = { u: 0, v: 0, scale: 1 };
@@ -90,7 +93,7 @@ let follow = true;
 const extensionApi = createOverlayApi({
   container: document.getElementById("overlays"),
   getState: () => map && dim ? ({ dimension: dim.id, dimensions: map.dimensions.map(d => d.id),
-    u: view.u, v: view.v, scale: view.scale, width: canvas.clientWidth, height: canvas.clientHeight,
+    referenceY:dim.referenceY,u: view.u, v: view.v, scale: view.scale, width: canvas.clientWidth, height: canvas.clientHeight,
     pixelRatio: devicePixelRatio || 1, projection: { sin: map.sin, cos: map.cos, facing: map.facing || 0 } }) : null,
   setDimension: id => {
     const next = map?.dimensions.find(d => d.id === id);
@@ -98,6 +101,7 @@ const extensionApi = createOverlayApi({
     if (dim?.id !== id) { pick(next, false); buildDims(); saveHash(); }
     return true;
   },
+  queueFeed:()=>map?.queueFeed?new URL(map.queueFeed,location.href).href:undefined,
   vehicleFeed: () => map?.vehicleFeed ? new URL(map.vehicleFeed, location.href).href : undefined,
   depthTiles: () => {
     if (!map?.depth || !dim) return [];
@@ -120,11 +124,12 @@ const extensionApi = createOverlayApi({
   },
 });
 const controls=new MapControls(extensionApi);
+const queueOverlay=new WebQueue(extensionApi);
 extensionApi.events.addEventListener('visibility',()=>draw());
 const publicMarkers=new WebMarkers(extensionApi,()=>map?.markerFeed);
 window.diorama = extensionApi;
 window.dispatchEvent(new Event("diorama:ready"));
-addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
+addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose();queueOverlay.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 
@@ -178,6 +183,7 @@ function pick(d, first) {
 
 	const switched = !dim || !d || dim.id !== d.id;
 	dim = d || null;
+	lossless=new Set((dim?.losslessTiles||[]).map(([u,v])=>u+","+v));
 	// Each tile with its version (when it was last drawn), so a browser keeps a picture until it changes.
 	present = dim ? dim.tiles.map(list => {
 		const m = new Map();
@@ -215,6 +221,9 @@ function home(first) {
 function buildDims() {
 	const box = document.getElementById("dims");
 	box.innerHTML = "";
+    const select=document.getElementById('dimension-select');select.replaceChildren();
+    for(const d of map.dimensions){const option=document.createElement('option');option.value=d.id;option.textContent=nameOf(d.id);option.selected=d.id===dim?.id;select.append(option);}
+    select.onchange=()=>extensionApi.setDimension(select.value);
 	box.style.display = map.dimensions.length > 1 ? "flex" : "none";
 	for (const d of map.dimensions) {
 		const b = document.createElement("button");
@@ -292,7 +301,7 @@ function startLoads() {
 			setTimeout(draw, Math.min(30000, 500 * Math.pow(2, t.tries)) + 10);
 			draw();
 		};
-		img.src = key + ".jpg?v=" + ver;
+		img.src = key + (+z===0&&lossless.has(u+","+v)?".png?v=":".jpg?v=") + ver;
 	}
 	// Keep memory in hand: forget ready pictures far from anything wanted once there are many.
 	if (tiles.size > 600) {
@@ -364,8 +373,9 @@ function paint() {
 	const k = view.scale * dpr;
 	const sx = m => Math.round((m - left) * k), sy = m => Math.round((m - top) * k);
 	// Reproject cached terrain from other LODs while the requested JPEGs load.
+	const complete=sharp.every(([u,v])=>!!tile(z,u,v));
 	const cached=[];
-	for(const [key,entry]of tiles){
+	for(const [key,entry]of complete?[]:tiles){
 		if(!key.startsWith(dim.folder+"/"))continue;
 		const parts=key.split("/"),level=Number(parts.at(-2));
 		if(level>=z&&level<=coarse)continue;
@@ -379,7 +389,7 @@ function paint() {
 		ctx.imageSmoothingEnabled=k<map.tilePixels/map.tileUnits/(1<<level);ctx.drawImage(image,x0,y0,x1-x0,y1-y0);
 	}
 	let loaded = 0, any = 0;
-	for (let level = coarse; level >= z; level--) {
+	for (let level = complete?z:coarse; level >= z; level--) {
 		const units = tileUnits(level);
 		// Shrunk pictures averaged with the browser's best filter; stretched ones (closer in than the
 		// map's pixels, or a zoomed-out stand-in while the sharp one loads) keep their pixels square.
@@ -397,7 +407,7 @@ function paint() {
 	fillState = { wanted: sharp.length, loaded, any };
 	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,
     enabled:dim.fog!=="none" && extensionApi.visible("clouds"),rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether",
-    validCoverage:source=>source.dimension!==dim.id || present[source.zoom]?.get(source.key)===source.version},
+    validCoverage:source=>source.dimension!==dim.id || present[source.zoom]?.has(source.key)},
     layout=>coverageSources(present,layout,(z,u,v,extension,version)=>tileKey(z,u,v)+extension+"?v="+version,map.tileUnits,dim.id));
 	if (player && player.dimension === dim.id) drawPlayer(sx(player.u), sy(player.v), dpr);
 }

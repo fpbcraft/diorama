@@ -86,6 +86,9 @@ import org.jspecify.annotations.Nullable;
  * written before its id is handed out, and never changes after.
  */
 public final class BlockLooks extends Looks {
+	private final JarModels materialModels=dev.diorama.data.DomumMaterials.INSTALLED?JarModels.resources(Minecraft.getInstance().getResourceManager()):null;
+	@Override protected FaceColor[] materialFaces(BlockState state,java.util.Map<String,BlockState> slots){return materialModels==null?null:materialModels.faces(state,slots,this);}
+
 	/** Held while a look is worked out: one at a time, across tables, since they share mods' code. */
 	private static final Object MAKING = new Object();
 	/**
@@ -227,7 +230,7 @@ public final class BlockLooks extends Looks {
 		} catch (RuntimeException | Error e) {
 			// Without it, a texture a reload freed adds no colour.
 		}
-		BlockLooks looks = new BlockLooks(size, Copycats.INSTALLED ? size + COPYCAT_LOOKS : size, models, mc.getBlockColors(), atlas);
+		BlockLooks looks = new BlockLooks(size, (Copycats.INSTALLED || dev.diorama.data.DomumMaterials.INSTALLED) ? size + COPYCAT_LOOKS : size, models, mc.getBlockColors(), atlas);
 		warnedFreed = false;
 		synchronized (MAKING) {
 			// Before any block: those tinted like water ask for the same colour as water does.

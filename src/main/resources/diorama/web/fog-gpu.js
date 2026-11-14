@@ -1,5 +1,6 @@
 import { revealProgress, revealFrom } from './fog-reveal.js';
 export const FOG_GUTTER = 64;
+export const cloudSpan = scale => Math.max(2048, 1200 / Math.max(scale, .0001));
 export const fogBufferSize = (width,height,coarse=false) => {
   const pixels=coarse?90000:180000;
   const ratio=Math.min(.5,Math.sqrt(pixels/(width*height)),960/Math.max(width,height));
@@ -11,10 +12,10 @@ export const fogViewportTransform = (before,after,pad=FOG_GUTTER) => {
     y:(before.v-after.v)*after.scale+(after.height-before.height*scale)/2+pad*(1-scale),
     scaleX:scale*(before.width+2*pad)/(after.width+2*pad),scaleY:scale*(before.height+2*pad)/(after.height+2*pad)};
 };
-/** The game's fog.fsh, with only its host uniforms adapted for WebGL2. Half-resolution, as FogLayer. */
+/** A bounded, single-pass cloud surface for browsers, with premultiplied transparency. */
 export class FogGpu {
   constructor(canvas) {
-    this.gl=canvas.getContext('webgl2',{alpha:true,premultipliedAlpha:false,antialias:false,powerPreference:'low-power'});
+    this.gl=canvas.getContext('webgl2',{alpha:true,premultipliedAlpha:true,antialias:false,powerPreference:'low-power'});
     if(!this.gl)throw Error('WebGL2 unavailable');
     this.canvas=canvas;this.ready=false;this.disposed=false;
     Object.assign(canvas.style,{left:`-${FOG_GUTTER}px`,top:`-${FOG_GUTTER}px`,right:'auto',bottom:'auto',width:`calc(100% + ${FOG_GUTTER*2}px)`,height:`calc(100% + ${FOG_GUTTER*2}px)`,transformOrigin:'0 0'});
@@ -29,10 +30,10 @@ export class FogGpu {
     const vertex=compile(gl.VERTEX_SHADER,'#version 300 es\nprecision highp float;uniform vec4 viewUv;out vec2 maskUv;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);maskUv=mix(viewUv.xy,viewUv.zw,vec2(p.x,1.0-p.y));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}');
     const fragment=compile(gl.FRAGMENT_SHADER,shader);this.program=gl.createProgram();gl.attachShader(this.program,vertex);gl.attachShader(this.program,fragment);gl.linkProgram(this.program);gl.deleteShader(vertex);gl.deleteShader(fragment);
     if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(this.program));
-    gl.useProgram(this.program);this.uniforms={};for(const name of ['viewUv','params','GameTime','ColorModulator','Reveal'])this.uniforms[name]=gl.getUniformLocation(this.program,name);
+    gl.useProgram(this.program);this.uniforms={};for(const name of ['viewUv','maskWorld','GameTime','Reveal','CloudSpan'])this.uniforms[name]=gl.getUniformLocation(this.program,name);
     this.textures=[0,1,2,3,4].map(index=>{const texture=gl.createTexture();gl.activeTexture(gl.TEXTURE0+index);gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,index===1?gl.REPEAT:gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,index===1?gl.REPEAT:gl.CLAMP_TO_EDGE);gl.uniform1i(gl.getUniformLocation(this.program,index===3?'Previous0':index===4?'Previous2':'Sampler'+index),index);return texture;});
     gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,this.textures[1]);gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL,gl.NONE);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,noise);noise.close();
-    gl.uniform4f(this.uniforms.ColorModulator,1,1,1,1);this.ready=true;
+    gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,this.textures[1]);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);this.ready=true;
   }
   update(mask,animate=true) {
     if(!this.ready)return;const gl=this.gl,now=performance.now();
@@ -51,14 +52,13 @@ export class FogGpu {
     gl.viewport(0,0,w,h);gl.useProgram(this.program);
     const left=state.u-renderWidth/2/state.scale,top=state.v-renderHeight/2/state.scale;
     gl.uniform4f(this.uniforms.viewUv,(left-layout.u)/layout.units,(top-layout.v)/layout.units,(left+renderWidth/state.scale-layout.u)/layout.units,(top+renderHeight/state.scale-layout.v)/layout.units);
-    const period=512*2**(layout.steps+1),offset=value=>Math.floor(((value/period%1+1)%1)*8)*32;
-    const alpha=(Math.round(Math.log2(layout.texel/2))*16)+(layout.steps>=8?8:0)+2+(state.smoke?1:0);
-    gl.uniform4f(this.uniforms.params,offset(layout.u)/255,offset(layout.v)/255,((layout.steps%8)*16+Math.round(layout.fraction*16))/255,alpha/255);
+    gl.uniform3f(this.uniforms.maskWorld,layout.u,layout.v,layout.units);
+    gl.uniform1f(this.uniforms.CloudSpan,cloudSpan(state.scale));
     const progress=this.transition?revealProgress(this.transition.started,performance.now(),state.reduced):1;
     this.canvas.dataset.fogRevealProgress=progress.toFixed(3);
     gl.uniform1f(this.uniforms.Reveal,progress);
-    gl.uniform1f(this.uniforms.GameTime,(time%1200000)/1200000);gl.drawArrays(gl.TRIANGLES,0,3);
-    this.canvas.dataset.fogPixels=String(w*h);this.canvas.dataset.fogQuality=state.coarse?'touch':'desktop';
+    gl.uniform1f(this.uniforms.GameTime,(time%1200000)/1200000);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLES,0,3);
+    this.canvas.dataset.fogPixels=String(w*h);this.canvas.dataset.fogQuality=state.coarse?'touch':'desktop';this.canvas.dataset.fogShader='web-surface';
     this.lastView={...state};this.canvas.style.transform='';
   }
   position(state) {

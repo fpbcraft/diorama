@@ -52,6 +52,8 @@ public final class JarModels {
 	private final Map<String, @Nullable JsonObject> json = new HashMap<>();
 	private final Map<String, float @Nullable []> textures = new HashMap<>();
 	private boolean warned;
+	private net.minecraft.server.packs.resources.ResourceManager resources;
+	public static JarModels resources(net.minecraft.server.packs.resources.ResourceManager resources){var models=new JarModels();models.resources=resources;return models;}
 
 	private JarModels() {
 	}
@@ -113,7 +115,9 @@ public final class JarModels {
 	}
 
 	/** A state's faces, top then side, or null if its jar has no model for it with a texture. */
-	synchronized FaceColor @Nullable [] faces(BlockState state) {
+	synchronized FaceColor @Nullable [] faces(BlockState state) {return faces(state,Map.of(),null);}
+
+	synchronized FaceColor @Nullable [] faces(BlockState state,Map<String,BlockState> slots,@Nullable Looks looks) {
 		String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
 		int colon = id.indexOf(':');
 		String namespace = id.substring(0, colon);
@@ -156,7 +160,7 @@ public final class JarModels {
 					continue;
 				}
 				particle = particle != null ? particle : model.texture("#particle");
-				this.add(model, top, side, onSide, y / 90);
+				this.add(model, top, side, onSide, y / 90, slots, looks);
 			}
 			if (top.isEmpty() && side.isEmpty() && particle != null) {
 				// Like a block entity's model: only the particle texture to go by.
@@ -185,7 +189,7 @@ public final class JarModels {
 	}
 
 	/** Adds the model's faces; {@code onSide} when the variant turns it over onto its side. */
-	private void add(Model model, FaceColor top, FaceColor side, boolean onSide, int quarterTurns) {
+	private void add(Model model, FaceColor top, FaceColor side, boolean onSide, int quarterTurns,Map<String,BlockState> slots,@Nullable Looks looks) {
 		FaceColor up = onSide ? side : top;
 		FaceColor front = onSide ? top : side;
 		// Turned about the vertical, the face that ends up south is another of the model's.
@@ -194,26 +198,28 @@ public final class JarModels {
 			cullsSouth |= "south".equals(turn(face.cull, quarterTurns));
 		}
 		for (Face face : model.faces) {
-			String cull = turn(face.cull, quarterTurns);
-			float[] avg = this.texture(model.texture(face.texture));
-			if (avg == null) {
-				continue;
+			String cull=turn(face.cull,quarterTurns),texture=model.texture(face.texture);
+			BlockState material=texture==null?null:slots.get(ResourceName.of(texture).namespace+":"+ResourceName.of(texture).path);
+			if(material==null&&looks!=null&&texture!=null){
+				ResourceName name=ResourceName.of(texture);
+				if(name.namespace.equals("minecraft")&&name.path.startsWith("block/"))material=BuiltInRegistries.BLOCK.getOptional(net.minecraft.resources.Identifier.fromNamespaceAndPath("minecraft",name.path.substring(6))).map(block->block.defaultBlockState()).orElse(null);
 			}
-			if (cull == null) {
-				// Unculled, as BlockLooks's loose quads: flat ones count on top, upright ones on both.
-				if (face.direction.equals("up") || face.direction.equals("down")) {
-					up.add(avg, face.tint);
-				} else {
-					top.add(avg, face.tint);
-					side.add(avg, face.tint);
-				}
-			} else if (cull.equals("up")) {
-				up.add(avg, face.tint);
-			} else if (cull.equals("south") || cull.equals("north") && !cullsSouth) {
-				front.add(avg, face.tint);
+			boolean horizontal=face.direction.equals("up")||face.direction.equals("down");
+			List<Sample> samples=material!=null&&looks!=null?materialSamples(looks,material,onSide?!horizontal:horizontal):textureSamples(texture,face.tint);
+			for(Sample sample:samples){float[] avg=sample.rgba.clone();if(looks!=null)avg[3]*=face.area;
+				if(cull==null){if(horizontal)up.add(avg,sample.tint);else{top.add(avg,sample.tint);side.add(avg,sample.tint);}}
+				else if(cull.equals("up"))up.add(avg,sample.tint);
+				else if(cull.equals("south")||cull.equals("north")&&!cullsSouth)front.add(avg,sample.tint);
 			}
 		}
 	}
+	private record Sample(float[] rgba,int tint){}
+	private List<Sample> textureSamples(@Nullable String texture,int tint){float[] avg=this.texture(texture);return avg==null?List.of():List.of(new Sample(avg,tint));}
+	private static List<Sample> materialSamples(Looks looks,BlockState material,boolean top){
+		if(material.isAir())return List.of();int id=looks.lookId(material),rgb=top?looks.top[id]:looks.side[id],tinted=top?looks.topTinted[id]:looks.sideTinted[id];float weight=top?looks.topTintWeight[id]:looks.sideTintWeight[id];
+		return List.of(new Sample(rgb(rgb,1-weight),-1),new Sample(rgb(tinted,weight),0));
+	}
+	private static float[] rgb(int rgb,float weight){return new float[]{(rgb>>16&255)/255f,(rgb>>8&255)/255f,(rgb&255)/255f,weight};}
 
 	/** A side turned clockwise, seen from above, by quarter turns, as a variant's {@code y} turns its model. */
 	private static @Nullable String turn(@Nullable String side, int quarterTurns) {
@@ -297,7 +303,7 @@ public final class JarModels {
 	}
 
 	/** One face of a model element: which way it faces, its culling side, texture name and tint layer. */
-	private record Face(String direction, @Nullable String cull, String texture, int tint) {
+	private record Face(String direction, @Nullable String cull, String texture, int tint, float area) {
 	}
 
 	/** A model with its parents worked in: its textures by name, and its elements' faces. */
@@ -321,17 +327,19 @@ public final class JarModels {
 		}
 	}
 
-	private @Nullable Model model(String name) {
+	private @Nullable Model model(String name) {return model(name,0);}
+	private @Nullable Model model(String name,int nesting) {
+		if(nesting>=MAX_PARENTS)return null;
 		Model model = new Model();
 		boolean haveFaces = false;
 		String at = name;
 		for (int depth = 0; at != null && depth < MAX_PARENTS; depth++) {
 			ResourceName location = ResourceName.of(at);
-			JsonObject json = location.namespace.equals("minecraft") ? null : this.json("assets/" + location.namespace + "/models/" + location.path + ".json");
+			JsonObject json = location.namespace.equals("minecraft") && this.resources == null ? null : this.json("assets/" + location.namespace + "/models/" + location.path + ".json");
 			if (json == null) {
 				// A vanilla parent (or a model this jar lacks): vanilla's are written out here.
 				if (!haveFaces) {
-					haveFaces = VanillaParents.faces(location.path, (direction, cull, texture, tint) -> model.faces.add(new Face(direction, cull, texture, tint)));
+					haveFaces = VanillaParents.faces(location.path, (direction, cull, texture, tint) -> model.faces.add(new Face(direction, cull, texture, tint,1)));
 				}
 				break;
 			}
@@ -355,9 +363,17 @@ public final class JarModels {
 							continue;
 						}
 						String cull = f.has("cullface") ? f.get("cullface").getAsString() : null;
-						model.faces.add(new Face(face.getKey(), cull, f.get("texture").getAsString(), f.has("tintindex") ? f.get("tintindex").getAsInt() : -1));
+						model.faces.add(new Face(face.getKey(), cull, f.get("texture").getAsString(), f.has("tintindex") ? f.get("tintindex").getAsInt() : -1,faceArea(element.getAsJsonObject(),face.getKey())));
 					}
 				}
+			}
+			if(!haveFaces&&json.has("children")){
+				for(var child:json.getAsJsonObject("children").entrySet()){
+					if(!child.getValue().isJsonObject())continue;JsonObject spec=child.getValue().getAsJsonObject();
+					if(!spec.has("parent"))continue;Model part=model(spec.get("parent").getAsString(),nesting+1);if(part==null)continue;
+					if(spec.has("textures"))for(var texture:spec.getAsJsonObject("textures").entrySet())part.textures.put(texture.getKey(),texture.getValue().getAsString());
+					for(Face face:part.faces){String texture=part.texture(face.texture);if(texture!=null)model.faces.add(new Face(face.direction,face.cull,texture,face.tint,face.area));}
+				}haveFaces=!model.faces.isEmpty();
 			}
 			at = json.has("parent") ? json.get("parent").getAsString() : null;
 		}
@@ -377,15 +393,14 @@ public final class JarModels {
 			return this.json.get(path);
 		}
 		JsonObject parsed = null;
-		ZipFile zip = this.assets.get(path);
-		if (zip != null) {
-			try (Reader reader = new InputStreamReader(zip.getInputStream(zip.getEntry(path)), StandardCharsets.UTF_8)) {
+		try (InputStream stream=open(path)) {
+		if(stream!=null)try (Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
 				JsonElement element = JsonParser.parseReader(reader);
 				parsed = element.isJsonObject() ? element.getAsJsonObject() : null;
 			} catch (IOException | RuntimeException e) {
 				parsed = null;
 			}
-		}
+		}catch(IOException error){parsed=null;}
 		this.json.put(path, parsed);
 		return parsed;
 	}
@@ -405,17 +420,21 @@ public final class JarModels {
 		ResourceName location = ResourceName.of(name);
 		String path = "assets/" + location.namespace + "/textures/" + location.path + ".png";
 		float[] avg = null;
-		ZipFile zip = this.assets.get(path);
-		if (zip != null) {
-			try (InputStream in = zip.getInputStream(zip.getEntry(path))) {
-				BufferedImage image = ImageIO.read(in);
-				avg = image == null ? null : average(image);
-			} catch (IOException | RuntimeException e) {
-				avg = null;
-			}
-		}
+		try(InputStream in=open(path)){if(in!=null){BufferedImage image=ImageIO.read(in);avg=image==null?null:average(image);}}
+		catch(IOException|RuntimeException error){avg=null;}
 		this.textures.put(name, avg);
 		return avg;
+	}
+
+
+	private @Nullable InputStream open(String path)throws IOException{
+		if(this.resources!=null){String[] parts=path.split("/",3);if(parts.length!=3)return null;var resource=this.resources.getResource(net.minecraft.resources.Identifier.fromNamespaceAndPath(parts[1],parts[2]));return resource.isEmpty()?null:resource.get().open();}
+		ZipFile zip=this.assets.get(path);return zip==null?null:zip.getInputStream(zip.getEntry(path));
+	}
+	private static float faceArea(JsonObject element,String face){
+		if(!element.has("from")||!element.has("to"))return 1;var from=element.getAsJsonArray("from");var to=element.getAsJsonArray("to");
+		float x=Math.abs(to.get(0).getAsFloat()-from.get(0).getAsFloat()),y=Math.abs(to.get(1).getAsFloat()-from.get(1).getAsFloat()),z=Math.abs(to.get(2).getAsFloat()-from.get(2).getAsFloat());
+		return Math.max(.0001f,(face.equals("up")||face.equals("down")?x*z:face.equals("east")||face.equals("west")?y*z:x*y)/256f);
 	}
 
 	static float[] average(BufferedImage image) {

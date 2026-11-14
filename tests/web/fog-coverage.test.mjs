@@ -38,3 +38,21 @@ test('Nether and smoke maps never show clouds',()=>{
   assert.equal(cloudsEnabled({dimension:'minecraft:overworld',enabled:false}),false);
   assert.equal(cloudsEnabled({dimension:'minecraft:overworld'}),true);
 });
+
+test('tile revisions keep ready coverage until its replacement arrives without a white flash',t=>{
+ const images=fakeImages(t),coverage=new FogCoverage(()=>{});t.after(()=>coverage.dispose());
+ const old=source('v1'),next={...old,mask:'v2',version:2};
+ coverage.begin([old],bounds);coverage.get(old);images[0].complete();
+ coverage.begin([next],bounds,()=>true);coverage.get(next);
+ assert.equal(coverage.ready(bounds,'minecraft:overworld')[0].source.mask,'v1');
+ images[1].complete();assert.deepEqual(coverage.ready(bounds,'minecraft:overworld').map(e=>e.source.mask),['v2']);
+ coverage.begin([],bounds,()=>false);assert.equal(coverage.ready(bounds,'minecraft:overworld').length,0);
+});
+
+test('late older mask responses cannot replace a newer revision',t=>{
+ const images=fakeImages(t),coverage=new FogCoverage(()=>{});t.after(()=>coverage.dispose());
+ const old=source('old'),next={...old,mask:'new',version:2};
+ coverage.begin([old],bounds);coverage.get(old);coverage.begin([next],bounds);coverage.get(next);
+ images[1].complete();images[0].complete();
+ assert.deepEqual(coverage.ready(bounds,'minecraft:overworld').map(e=>e.source.mask),['new']);
+});

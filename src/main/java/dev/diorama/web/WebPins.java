@@ -13,6 +13,11 @@ final class WebPins {
 		Path folder=root.resolve("assets/diorama-markers");Files.createDirectories(folder);
 		write(folder.resolve("ship.png"),0xff8e4ec6);write(folder.resolve("train.png"),0xffffc53d);
 	}
+	static String imageKey(PinArt.Image image) {
+		var bytes=java.nio.ByteBuffer.allocate(4*image.width*image.height);
+		for(int y=0;y<image.height;y++)for(int x=0;x<image.width;x++)bytes.putInt(image.argb(x,y));
+		return java.util.UUID.nameUUIDFromBytes(bytes.array()).toString();
+	}
 	static String iconName(String id) {
 		String name=id.startsWith("diorama:")?id.substring(8):"";
 		return java.util.Set.of("home","bed","farm","animals","villagers","mine","storage","portal","danger","treasure").contains(name)?name:"";

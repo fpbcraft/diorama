@@ -120,6 +120,10 @@ final class ServerSave implements ChunkSave {
 			hash = hash * 31 + Nbt.compound(section, "block_states").hashCode();
 			hash = hash * 31 + Nbt.compound(section, "biomes").hashCode();
 		}
+		if(dev.diorama.data.DomumMaterials.INSTALLED){
+			ListTag entities=Nbt.list(tag,"block_entities");
+			for(int i=0;i<entities.size();i++){CompoundTag entity=Nbt.compound(entities,i),data=Nbt.compound(entity,"textureData");if(data.isEmpty())continue;hash=hash*31+data.hashCode();hash=hash*31+Nbt.integer(entity,"x");hash=hash*31+Nbt.integer(entity,"y");hash=hash*31+Nbt.integer(entity,"z");}
+		}
 		return new Info(summary, Nbt.longValue(tag, "InhabitedTime"), hash);
 	}
 

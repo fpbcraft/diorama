@@ -14,6 +14,7 @@ final class DirtyChunks {
 		if (due.size() >= capacity) return false;
 		due.put(key, now + delay); return true;
 	}
+	synchronized java.util.Set<Long> snapshot() { return java.util.Set.copyOf(due.keySet()); }
 	synchronized Long poll(long now) {
 		var iterator = due.entrySet().iterator();
 		if (!iterator.hasNext()) return null;

@@ -609,17 +609,13 @@ public final class MapScreen extends Screen {
 			BlockPos to = this.roughSpot(this.claimEndX, this.claimEndY);
 			boolean tooFar = (from != null && OpacClaims.outsideClaimDistance(this.minecraft, from.getX() >> 4, from.getZ() >> 4))
 				|| (to != null && OpacClaims.outsideClaimDistance(this.minecraft, to.getX() >> 4, to.getZ() >> 4));
-			int x0 = (int) Math.min(this.pressX, this.claimEndX);
-			int y0 = (int) Math.min(this.pressY, this.claimEndY);
-			int x1 = (int) Math.max(this.pressX, this.claimEndX);
-			int y1 = (int) Math.max(this.pressY, this.claimEndY);
 			int color = tooFar ? 0x77FF3C3C : this.claimRemoving ? 0x55FF6666 : 0x5566DD88;
-			graphics.fill(x0, y0, x1 + 1, y1 + 1, color);
-			graphics.fill(x0, y0, x1 + 1, y0 + 1, 0xFFFFFFFF);
-			graphics.fill(x0, y1, x1 + 1, y1 + 1, 0xFFFFFFFF);
-			graphics.fill(x0, y0, x0 + 1, y1 + 1, 0xFFFFFFFF);
-			graphics.fill(x1, y0, x1 + 1, y1 + 1, 0xFFFFFFFF);
+			if(from!=null&&to!=null)this.drawClaimChunks(graphics,view,viewer,Math.min(from.getX()>>4,to.getX()>>4),Math.min(from.getZ()>>4,to.getZ()>>4),Math.max(from.getX()>>4,to.getX()>>4),Math.max(from.getZ()>>4,to.getZ()>>4),color);
+		}else if(!this.draw.active()&&this.otherDimension==null&&DrawMode.shiftDown()&&OpacClaims.available(this.minecraft)&&mouseY>BAR&&mouseY<this.height-BOTTOM_BAR){
+			BlockPos at=this.roughSpot(mouseX,mouseY);
+			if(at!=null){int cx=at.getX()>>4,cz=at.getZ()>>4;this.drawClaimChunks(graphics,view,viewer,cx,cz,cx,cz,OpacClaims.outsideClaimDistance(this.minecraft,cx,cz)?0x77FF3C3C:0x5566DD88);}
 		}
+
 		// The bars: tabs and status on top with the buttons, the mouse's ways in at the bottom.
 		graphics.fill(0, 0, this.width, BAR, 0x90000000);
 		this.drawTabs(graphics, mouseX, mouseY);
@@ -1029,6 +1025,15 @@ public final class MapScreen extends Screen {
 	 * The map uses a fixed player Y, so the outline follows Diorama's map projection
 	 * but does not account for varying terrain elevations.
 	 */
+	private void drawClaimChunks(GuiGraphicsExtractor graphics,MapViewport.View view,Entity viewer,int x0,int z0,int x1,int z1,int color){
+		double y=viewer.getY();
+		float ax=view.screenX(Projection.u((double)x0*16,(double)z0*16)),bx=view.screenX(Projection.u(((double)x1+1)*16,((double)z1+1)*16));
+		float ay=view.screenY(Projection.v((double)x0*16,y,(double)z0*16)),by=view.screenY(Projection.v(((double)x1+1)*16,y,((double)z1+1)*16));
+		int l=Math.max(0,(int)Math.floor(Math.min(ax,bx))),r=Math.min(this.width,(int)Math.ceil(Math.max(ax,bx))),t=Math.max(BAR,(int)Math.floor(Math.min(ay,by))),b=Math.min(this.height-BOTTOM_BAR,(int)Math.ceil(Math.max(ay,by)));
+		if(l>=r||t>=b)return;
+		graphics.fill(l,t,r,b,color);graphics.fill(l,t,r,t+1,0xFFFFFFFF);graphics.fill(l,b-1,r,b,0xFFFFFFFF);graphics.fill(l,t,l+1,b,0xFFFFFFFF);graphics.fill(r-1,t,r,b,0xFFFFFFFF);
+	}
+
 	private void drawClaimableRange(GuiGraphicsExtractor graphics, MapViewport.View view, Entity viewer) {
 		if (!(this.claimSelecting || DrawMode.shiftDown()) || this.otherDimension != null) {
 			return;

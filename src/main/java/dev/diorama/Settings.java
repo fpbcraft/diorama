@@ -209,6 +209,7 @@ public final class Settings {
 	public boolean showRailwayTrains = true;
 	public boolean showSableShipShapes = true;
 	public boolean showSableShipMarkers = false;
+	public boolean showAllVehicleMarkers = false;
 	public SpawnSpots spawnSpots = SpawnSpots.OFF;
 	/** Where land claims from FTB Chunks or Open Parties and Claims show, when one is installed. */
 	public ClaimsShown claims = ClaimsShown.ALWAYS;

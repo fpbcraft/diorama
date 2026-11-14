@@ -24,13 +24,15 @@ public final class TableLooks extends Looks {
 	}
 
 	public TableLooks(VanillaTable table, @Nullable JarModels jars) {
-		super(Block.BLOCK_STATE_REGISTRY.size(), Copycats.INSTALLED ? Block.BLOCK_STATE_REGISTRY.size() + COPYCAT_LOOKS : Block.BLOCK_STATE_REGISTRY.size());
+		super(Block.BLOCK_STATE_REGISTRY.size(), (Copycats.INSTALLED || dev.diorama.data.DomumMaterials.INSTALLED) ? Block.BLOCK_STATE_REGISTRY.size() + COPYCAT_LOOKS : Block.BLOCK_STATE_REGISTRY.size());
 		this.table = table;
 		this.jars = jars;
 		this.lookOf = table.lookByStateId();
 		// What a bake reads where a section's palette has no entry.
 		this.ensure(VoxelReader.AIR_ID);
 	}
+
+	@Override protected synchronized FaceColor[] materialFaces(BlockState state,java.util.Map<String,BlockState> slots){return this.jars==null?null:this.jars.faces(state,slots,this);}
 
 	@Override
 	protected void make(int id) {
@@ -48,7 +50,7 @@ public final class TableLooks extends Looks {
 	protected byte colours(int id, BlockState state, byte kind) {
 		int index = id < this.lookOf.length ? this.lookOf[id] : -1;
 		if (index < 0) {
-			FaceColor[] faces = this.jars == null ? null : this.jars.faces(state);
+			FaceColor[] faces = this.jars == null ? null : dev.diorama.data.DomumMaterials.textured(state) ? this.jars.faces(state,java.util.Map.of(),this) : this.jars.faces(state);
 			if (faces == null) {
 				return this.flatColours(id, state, kind);
 			}
@@ -58,7 +60,7 @@ public final class TableLooks extends Looks {
 				this.tint[id] = JarModels.tintOf(state);
 			}
 			// As BlockLooks: a solid block whose top texture is mostly see-through draws like glass.
-			if (kind == SOLID && !state.is(BlockTags.LEAVES) && faces[0].coverage() < 0.55F) {
+			if (kind == SOLID && !dev.diorama.data.DomumMaterials.textured(state) && !state.is(BlockTags.LEAVES) && faces[0].coverage() < 0.55F) {
 				return GLASS;
 			}
 			return kind;

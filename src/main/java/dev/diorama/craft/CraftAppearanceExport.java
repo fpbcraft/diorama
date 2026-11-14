@@ -27,6 +27,15 @@ public final class CraftAppearanceExport {
 				var style = gson.toJsonTree(MapStyle.get()).getAsJsonObject();
 				style.addProperty("facing", dev.diorama.Projection.facing().id());
 				Files.writeString(folder.resolve("style.json"), gson.toJson(style));
+				var icons = new java.util.LinkedHashMap<String, int[]>();
+				for (String id : dev.diorama.render.WaypointIcons.all().stream().limit(512).toList()) {
+					var image = dev.diorama.render.WaypointIcons.image(id);
+					if (image == null) continue;
+					int[] pixels = new int[image.width * image.height];
+					for (int y = 0; y < image.height; y++) for (int x = 0; x < image.width; x++) pixels[y * image.width + x] = image.argb(x, y);
+					icons.put(id, pixels);
+				}
+				Files.writeString(folder.resolve("waypoint-icons.json"), gson.toJson(icons));
 				if (client.player != null) client.player.displayClientMessage(Component.literal("Diorama web appearance exported to " + folder), false);
 				return 1;
 			} catch (java.io.IOException | RuntimeException error) { Diorama.LOGGER.warn("Couldn't export web appearance", error); return 0; }

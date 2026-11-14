@@ -35,6 +35,14 @@ final class WebTiles {
 	private WebTiles() {
 	}
 
+	static Path lossless(Path file) {return file.resolveSibling(file.getFileName().toString().replace(".jpg",".png"));}
+	static void writeLossless(Path file,int[] pixels,boolean enabled)throws IOException {
+		Path png=lossless(file);if(!enabled){Files.deleteIfExists(png);return;}
+		BufferedImage image=image(pixels);if(image==null){Files.deleteIfExists(png);return;}
+		Path part=png.resolveSibling(png.getFileName()+".part");
+		if(!ImageIO.write(image,"png",part.toFile()))throw new IOException("PNG writer unavailable");
+		Files.move(part,png,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
+	}
 	static Path file(Path dimension, int zoom, int u, int v) {
 		return dimension.resolve(Integer.toString(zoom)).resolve(u + "_" + v + ".jpg");
 	}
@@ -100,7 +108,7 @@ final class WebTiles {
 			if (child == null || !Files.exists(child)) {
 				continue;
 			}
-			BufferedImage read = ImageIO.read(child.toFile());
+			BufferedImage read = ImageIO.read((Files.isRegularFile(lossless(child))?lossless(child):child).toFile());
 			if (read == null) {
 				continue;
 			}
