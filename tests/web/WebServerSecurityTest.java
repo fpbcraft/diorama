@@ -55,11 +55,26 @@ public final class WebServerSecurityTest {
     });
     chat.start();
     WebExtensions.registerLoopbackApi("test-history", "/player-history-api/", chat.getAddress().getPort());
-    WebServer server = WebServer.start(root, "127.0.0.1", 0);
+    for (String folder : new String[] {"minecraft_the_nether", "minecraft_overworld"}) {
+      Files.createDirectories(root.resolve(folder + "/0"));
+      for (String suffix : new String[] {"jpg", "png", "fog.png", "depth", "ground"})
+        Files.write(root.resolve(folder + "/0/0_0." + suffix), new byte[] {1});
+    }
+    Files.createSymbolicLink(root.resolve("nether-alias"), root.resolve("minecraft_the_nether"));
+    WebServer server = WebServer.start(root, "127.0.0.1", 0, name -> name.equals("minecraft_the_nether"));
     if (server == null) throw new AssertionError("server did not start");
     var client = HttpClient.newHttpClient();
     String origin = "http://127.0.0.1:" + server.port();
     try {
+      for (String suffix : new String[] {"jpg", "png", "fog.png", "depth", "ground"}) {
+        check(get(client, origin + "/minecraft_the_nether/0/0_0." + suffix).statusCode() == 404, "excluded dimension " + suffix);
+        check(get(client, origin + "/nether-alias/0/0_0." + suffix).statusCode() == 404, "excluded dimension through internal link " + suffix);
+        check(get(client, origin + "/minecraft_overworld/0/0_0." + suffix).statusCode() == 200, "allowed dimension " + suffix);
+        check(get(client, origin + "/MINECRAFT_THE_NETHER/0/0_0." + suffix).statusCode() == 404, "excluded dimension case " + suffix);
+        var deniedHead = client.send(HttpRequest.newBuilder(URI.create(origin + "/minecraft_the_nether/0/0_0." + suffix))
+          .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+        check(deniedHead.statusCode() == 404, "excluded HEAD " + suffix);
+      }
       for (String path : new String[] {"/../secret.json", "/%2e%2e/secret.json", "/escape.json", "/config.toml"}) {
         check(get(client, origin + path).statusCode() == 404, "private/traversal route " + path);
       }

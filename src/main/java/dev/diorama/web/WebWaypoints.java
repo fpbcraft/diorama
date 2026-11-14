@@ -27,11 +27,14 @@ final class WebWaypoints implements AutoCloseable {
 	private final AtomicBoolean queued=new AtomicBoolean();
 	private final ExecutorService writer=Executors.newSingleThreadExecutor(task->{Thread thread=new Thread(task,"Diorama public waypoints");thread.setDaemon(true);thread.setPriority(Thread.MIN_PRIORITY);return thread;});
 	private final java.util.function.LongSupplier clock;
+	private final java.util.function.Predicate<String> dimensionAllowed;
 	private long revision;
 	private volatile boolean closed;
 	WebWaypoints(Path world,Path root) {this(world,root,System::currentTimeMillis);}
-	WebWaypoints(Path world,Path root,java.util.function.LongSupplier clock) {
+	WebWaypoints(Path world,Path root,java.util.function.LongSupplier clock) {this(world,root,clock,id -> true);}
+	WebWaypoints(Path world,Path root,java.util.function.LongSupplier clock,java.util.function.Predicate<String> dimensionAllowed) {
 		this.clock=clock;
+		this.dimensionAllowed=dimensionAllowed;
 		this.file=world.resolve("diorama-public-waypoints.json");this.root=root;
 		try {
 			if(Files.isRegularFile(file)&&Files.size(file)<4*1024*1024) {
@@ -73,6 +76,7 @@ final class WebWaypoints implements AutoCloseable {
 				Files.createDirectories(root.resolve("assets/diorama-markers"));
 				List<Map<String,Object>> published=new ArrayList<>();Set<String> images=new HashSet<>();
 				for(var entry:snapshot.entrySet())for(Marker marker:entry.getValue()) {
+					if(!dimensionAllowed.test(marker.dimension))continue;
 					String id=UUID.nameUUIDFromBytes((entry.getKey()+"/"+marker.id).getBytes(StandardCharsets.UTF_8)).toString();
 					String icon=WebPins.iconName(marker.icon);
 					var custom=icons.get(marker.icon);

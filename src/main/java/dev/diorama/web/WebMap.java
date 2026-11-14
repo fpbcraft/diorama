@@ -11,6 +11,8 @@ import dev.diorama.bake.VanillaTable;
 import dev.diorama.data.ChunkSnapshot;
 import dev.diorama.data.ChunkTags;
 import dev.diorama.data.SavedChunkSource;
+import dev.diorama.share.ServerLocks;
+import dev.diorama.share.ShareServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -20,6 +22,7 @@ import java.lang.management.ThreadMXBean;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -53,6 +56,10 @@ import org.jspecify.annotations.Nullable;
  * biomes; so a build shows once the server has saved it, with nothing to press.
  * {@code /diorama-web redraw} draws everything again.
  *
+ * <p>It shows no more than the map in the game would: a dimension the server's settings turn the
+ * map off in ({@link ServerLocks}) isn't drawn, and the pictures it had are deleted; see
+ * {@link #leftOut}.
+ *
  * <p>Reads only the region files ({@link ServerSave}), so it never touches loaded chunks or the
  * server's storage thread, and names no client class.
  */
@@ -82,6 +89,8 @@ public final class WebMap {
 	private static final int BLEND_RADIUS = 2;
 	/** The most zoom levels out from the map's own tiles. */
 	private static final int MAX_ZOOM = 10;
+	/** A tile or its lossless, coverage, depth or ground companion: its place across and down. */
+	private static final java.util.regex.Pattern TILE_NAME = java.util.regex.Pattern.compile("-?[0-9]+_-?[0-9]+[.](jpg|png|fog[.]png|depth|ground)");
 
 	private static @Nullable WebMap running;
 
@@ -96,9 +105,13 @@ public final class WebMap {
 	private final Path modsFolder;
 	final Path folder;
 	private final Map<String, Dimension> dimensions = new ConcurrentHashMap<>();
+	/** The folders, in lower case, of the dimensions the settings keep off the map: the map's web server serves nothing in them. */
+	private final Set<String> closed = ConcurrentHashMap.newKeySet();
+	/** The folders a warning has been logged for, with pictures that couldn't be deleted. */
+	private final Set<String> warnedKept = new HashSet<>();
 	private final Object wake = new Object();
 	private final Thread thread;
-	private @Nullable WebServer http;
+	private volatile @Nullable WebServer http;
 	private volatile boolean stopping;
 	/** An operator asked to draw everything again; taken by the next pass. */
 	private final java.util.concurrent.atomic.AtomicBoolean redrawAll = new java.util.concurrent.atomic.AtomicBoolean();
@@ -119,7 +132,12 @@ public final class WebMap {
 		this.table = table;
 		this.modsFolder = modsFolder;
 		this.folder = settings.folder() != null ? settings.folder() : server.getWorldPath(LevelResource.ROOT).resolve("diorama-web");
-		this.waypoints=new WebWaypoints(server.getWorldPath(LevelResource.ROOT),this.folder);
+		for (ServerLevel level : server.getAllLevels()) {
+			if (this.leftOut(level)) this.closed.add(folderName(level.dimension().identifier().toString()).toLowerCase(Locale.ROOT));
+		}
+		for (String id : ShareServer.locks(server).mapOffDimensions()) this.closed.add(folderName(id).toLowerCase(Locale.ROOT));
+		this.waypoints=new WebWaypoints(server.getWorldPath(LevelResource.ROOT),this.folder,System::currentTimeMillis,
+			id -> !this.closed.contains(folderName(id).toLowerCase(Locale.ROOT)));
 		this.thread = new Thread(this::run, "Diorama web map");
 		this.thread.setDaemon(true);
 		this.thread.setPriority(Thread.MIN_PRIORITY);
@@ -173,12 +191,12 @@ public final class WebMap {
 	/** Cheap dirty notification: no world reads, disk IO or rendering. */
 	public static void blockChanged(ServerLevel level, net.minecraft.core.BlockPos pos) {
 		WebMap map = running;
-		if (map != null && !map.stopping && level.getServer().isSameThread()) map.live.mark(level, pos);
+		if (map != null && !map.stopping && level.getServer().isSameThread() && !map.leftOut(level)) map.live.mark(level, pos);
 	}
 	/** At most one loaded-chunk copy per level tick; busy servers defer capture. */
 	public static void tick(ServerLevel level) {
 		WebMap map = running;
-		if (map == null || map.stopping || map.paused || map.serverBehind() || map.server.isCurrentlySaving()) return;
+		if (map == null || map.stopping || map.paused || map.serverBehind() || map.server.isCurrentlySaving() || map.leftOut(level)) return;
 		try {
 			if (level == map.server.overworld() && map.tracks.tick()) synchronized(map.wake){map.wake.notifyAll();}
 			if (map.vehicles != null) map.vehicles.tick(level);
@@ -192,7 +210,7 @@ public final class WebMap {
 		Set<Dimension> changed = new HashSet<>();
 		for (LiveTerrain.Changed update : this.live.drain()) {
 			for (ServerLevel level : this.server.getAllLevels()) {
-				if (!level.dimension().identifier().toString().equals(update.dimension())) continue;
+				if (!level.dimension().identifier().toString().equals(update.dimension()) || this.leftOut(level)) continue;
 				Dimension dimension = this.dimensions.computeIfAbsent(update.dimension(), id -> new Dimension(this, level, id));
 				Set<Long> tiles = new HashSet<>();
 				ChunkSnapshot snapshot = update.snapshot();
@@ -222,6 +240,11 @@ public final class WebMap {
 	private boolean start() {
 		try {
 			Files.createDirectories(this.folder);
+			// Old public feeds may contain coordinates from a dimension now excluded by server locks.
+			// Their publishers replace them with current snapshots after startup.
+			for (String feed : new String[] {"markers.json", "queue-status.json", "assets/diorama-vehicles/scene.json"}) {
+				Files.deleteIfExists(this.folder.resolve(feed));
+			}
 			WebPins.install(this.folder);
 			if (!WebFrontendAssets.install(this.folder)) {
 				for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
@@ -237,12 +260,8 @@ public final class WebMap {
 			Diorama.LOGGER.warn("Diorama's web map can't write to {}, so it doesn't start", this.folder, e);
 			return false;
 		}
-		if (this.settings.port() > 0) {
-			this.http = WebServer.start(this.folder, this.settings.address(), this.settings.port());
-		}
 		this.thread.start();
-		Diorama.LOGGER.info("Diorama's web map is drawing into {}{}", this.folder,
-			this.http != null ? ", served at http://" + (this.settings.address().isEmpty() ? "<this server>" : this.settings.address()) + ":" + this.settings.port() + "/" : "");
+		Diorama.LOGGER.info("Diorama's web map is drawing into {}", this.folder);
 		return true;
 	}
 
@@ -256,8 +275,9 @@ public final class WebMap {
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 		}
-		if (this.http != null) {
-			this.http.stop();
+		WebServer http = this.http;
+		if (http != null) {
+			http.stop();
 		}
 	}
 
@@ -317,7 +337,7 @@ public final class WebMap {
 		RenderRequest request;
 		while ((request = this.requested.poll()) != null && !this.stopping && !this.cancelRequested.get()) {
 			for (ServerLevel level : this.server.getAllLevels()) {
-				if (!level.dimension().identifier().toString().equals(request.dimension())) continue;
+				if (!level.dimension().identifier().toString().equals(request.dimension()) || this.leftOut(level)) continue;
 				Dimension dimension = this.dimensions.computeIfAbsent(request.dimension(),
 					id -> new Dimension(this, level, id));
 				dimension.renderArea(looks, request);
@@ -339,13 +359,134 @@ public final class WebMap {
 			+ (this.paused ? ", paused=true" : "");
 	}
 
+	/**
+	 * Whether the server's settings keep a dimension off the web map: one with the map off
+	 * ({@code map-off-dimensions}), or one under a roof, as the Nether, while cave maps aren't allowed
+	 * or are fog of war. There the map in the game shows only what each player has seen, and a page
+	 * for everyone can't know what one player has seen.
+	 */
+	private boolean leftOut(ServerLevel level) {
+		ServerLocks locks = ShareServer.locks(this.server);
+		return locks.mapOffDimensions().contains(level.dimension().identifier().toString())
+			|| level.dimensionType().hasCeiling() && (!locks.caveMapsAllowed() || locks.caveFogOfWar());
+	}
+
+	/**
+	 * Takes a dimension off the web map: its pictures, and when it was last drawn, so it's drawn
+	 * whole if the settings allow it again. Only the map's own pictures are deleted, in the map's own
+	 * folders (none reached through a link). Whatever can't be deleted, the map's web server no
+	 * longer serves, and it's tried again at the next pass.
+	 */
+	private void remove(String id, Properties progress) {
+		this.dimensions.remove(id);
+		if (progress.remove(id) != null) {
+			this.saveProgress(progress);
+		}
+		String name = folderName(id);
+		Path dimension = this.folder.resolve(name);
+		// An ID from the settings file that isn't one folder's name inside the map's folder names nothing of the map's.
+		if (!this.folder.equals(dimension.getParent()) || !name.equals(String.valueOf(dimension.getFileName()))) {
+			return;
+		}
+		this.closed.add(name.toLowerCase(Locale.ROOT));
+		if (!Files.isDirectory(dimension, LinkOption.NOFOLLOW_LINKS)) {
+			return;
+		}
+		int deleted = 0;
+		int kept = 0;
+		for (int zoom = 0; zoom <= MAX_ZOOM; zoom++) {
+			Path level = dimension.resolve(Integer.toString(zoom));
+			if (!Files.isDirectory(level, LinkOption.NOFOLLOW_LINKS)) {
+				continue;
+			}
+			try (DirectoryStream<Path> files = Files.newDirectoryStream(level)) {
+				for (Path file : files) {
+					if (TILE_NAME.matcher(file.getFileName().toString()).matches()) {
+						try {
+							Files.delete(file);
+							deleted++;
+						} catch (IOException e) {
+							kept++;
+						}
+					}
+				}
+				deleteIfEmpty(level);
+			} catch (IOException e) {
+				kept++;
+			}
+		}
+		try {
+			deleteIfEmpty(dimension);
+		} catch (IOException e) {
+			kept++;
+		}
+		if (deleted > 0) {
+			Diorama.LOGGER.info("Web map: deleted the {} pictures of {}, which this server's settings keep off it", deleted, id);
+		}
+		if (kept > 0 && this.warnedKept.add(name)) {
+			Diorama.LOGGER.warn("Web map: couldn't delete {} of the pictures or folders of {} in {}, which this server's settings keep off the map. Diorama's own web server "
+				+ "doesn't serve them; a web server of your own still would, so delete that folder yourself", kept, id, dimension);
+		}
+	}
+
+	/** Deletes a folder with nothing in it; one with someone else's files stays. */
+	private static void deleteIfEmpty(Path folder) throws IOException {
+		try (DirectoryStream<Path> files = Files.newDirectoryStream(folder)) {
+			if (files.iterator().hasNext()) {
+				return;
+			}
+		}
+		Files.delete(folder);
+	}
+
+	/** The folder of a dimension's pictures, in the web map's folder. */
+	private static String folderName(String id) {
+		return id.replace(':', '_').replace('/', '_');
+	}
+
 	private void run() {
 		try {
+			Properties progress = this.loadProgress();
+			// Before anything is served: what the settings keep off the map is deleted, and the map
+			// file lists what's left as it is on disk.
+			List<String> out = new ArrayList<>();
+			for (ServerLevel level : this.server.getAllLevels()) {
+				String id = level.dimension().identifier().toString();
+				if (this.leftOut(level)) {
+					out.add(id);
+					this.remove(id, progress);
+				} else {
+					this.dimensions.computeIfAbsent(id, key -> new Dimension(this, level, key));
+				}
+			}
+			// A dimension turned off that isn't in this world now (its mod or data pack taken out) may still have pictures.
+			for (String id : ShareServer.locks(this.server).mapOffDimensions()) {
+				if (!out.contains(id)) {
+					this.remove(id, progress);
+				}
+			}
+			if (!out.isEmpty()) {
+				Diorama.LOGGER.info("Web map: not drawing {}, which this server's settings keep off the map (map-off-dimensions, or cave maps locked for a dimension under a roof)", String.join(", ", out));
+			}
+			this.writeMapJson();
+			if (this.settings.port() > 0 && !this.stopping) {
+				this.http = WebServer.start(this.folder, this.settings.address(), this.settings.port(), this.closed::contains);
+				if (this.stopping) {
+					// The server stopped while the pictures were being deleted, and has looked for this already.
+					WebServer late = this.http;
+					if (late != null) {
+						late.stop();
+					}
+					return;
+				}
+				if (this.http != null) {
+					Diorama.LOGGER.info("Diorama's web map is served at http://{}:{}/", this.settings.address().isEmpty() ? "<this server>" : this.settings.address(), this.settings.port());
+				}
+			}
 			this.colourMaps();
 			JarModels jars = JarModels.of(this.modsFolder);
 			TableLooks looks = new TableLooks(this.table, jars);
 			Diorama.LOGGER.info("Web map colours: vanilla table of {}; block models from {} mod jars", this.table.describe(), jars.jarCount());
-			Properties progress = this.loadProgress();
 			String appearance = WebAppearance.fingerprint(this.table);
 			String previousAppearance = progress.getProperty("appearance");
 			if (previousAppearance != null ? !previousAppearance.equals(appearance) : this.table != VanillaTable.shipped()) {
@@ -414,6 +555,11 @@ public final class WebMap {
 						break;
 					}
 					String id = level.dimension().identifier().toString();
+					if (this.leftOut(level)) {
+						// A dimension a mod added since, or pictures that couldn't be deleted before.
+						this.remove(id, progress);
+						continue;
+					}
 					Dimension dimension = this.dimensions.computeIfAbsent(id, key -> new Dimension(this, level, key));
 					dimension.repairCoverage();
 					long last = all ? -1 : Long.parseLong(progress.getProperty(id, "-1"));
@@ -687,7 +833,7 @@ public final class WebMap {
 			this.map = map;
 			this.level = level;
 			this.id = id;
-			this.folder = map.folder.resolve(id.replace(':', '_').replace('/', '_'));
+			this.folder = map.folder.resolve(folderName(id));
 			this.pending = new WebTileQueue(this.folder);
 			this.coverageRepair = new WebCoverageRepair(this.folder);
 			this.minimumY=level.getMinY();this.maximumY=level.getMaxY();this.ceiling=level.dimensionType().hasCeiling();
