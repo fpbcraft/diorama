@@ -22,3 +22,34 @@ export class MapControls {
   }
   dispose(){this.abort.abort();this.root.remove();}
 }
+
+/** One bounded terrain snapshot per zoom gesture; sharp tiles replace it after settling. */
+export class ZoomPreview {
+  constructor(settled,createCanvas=()=>document.createElement('canvas')) {
+    this.settled=settled;this.createCanvas=createCanvas;this.active=false;
+  }
+  begin(canvas,state) {
+    if(!state||!canvas.width||!canvas.height)return;
+    if(!this.active) {
+      this.clear();this.image=this.createCanvas();
+      const ratio=Math.min(1,Math.sqrt(2000000/(state.width*state.height)));
+      this.image.width=Math.ceil(state.width*ratio);this.image.height=Math.ceil(state.height*ratio);
+      const context=this.image.getContext('2d');
+      if(!context){this.clear();return;}
+      context.drawImage(canvas,0,0,this.image.width,this.image.height);this.anchor={...state};
+    }
+    this.active=true;clearTimeout(this.timer);
+    this.timer=setTimeout(()=>{this.active=false;this.settled();},160);
+  }
+  render(context,state) {
+    const before=this.anchor;
+    if(!before||before.dimension!==state.dimension||before.width!==state.width||before.height!==state.height||before.dpr!==state.dpr){this.clear();return false;}
+    const scale=state.scale/before.scale;
+    const x=(before.u-state.u)*state.scale+(state.width-before.width*scale)/2;
+    const y=(before.v-state.v)*state.scale+(state.height-before.height*scale)/2;
+    context.imageSmoothingEnabled=true;context.imageSmoothingQuality='low';
+    context.drawImage(this.image,x*state.dpr,y*state.dpr,before.width*scale*state.dpr,before.height*scale*state.dpr);
+    return true;
+  }
+  clear(){clearTimeout(this.timer);this.active=false;this.anchor=null;if(this.image){this.image.width=this.image.height=0;this.image=null;}}
+}

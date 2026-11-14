@@ -69,7 +69,7 @@
 <div class="map-empty" id="empty"></div>
 <script type="module">
 import { WebQueue } from "./web-queue.js";
-import { MapControls } from "./map-controls.js";
+import { MapControls, ZoomPreview } from "./map-controls.js";
 import { WebMarkers } from "./web-markers.js";
 import { coverageSources } from "./fog-coverage.js";
 import { WebFog } from "./web-fog.js";
@@ -80,6 +80,8 @@ if (!location.pathname.endsWith("/") && !/\.[a-z]+$/i.test(location.pathname)) l
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 const fog = new WebFog(document.getElementById("fog"));
+const zoomPreview = new ZoomPreview(() => draw());
+let paintedView = null;
 let map = null;          // map.json
 let dim = null;          // the dimension shown
 let lossless = new Set();
@@ -129,7 +131,7 @@ extensionApi.events.addEventListener('visibility',()=>draw());
 const publicMarkers=new WebMarkers(extensionApi,()=>map?.markerFeed);
 window.diorama = extensionApi;
 window.dispatchEvent(new Event("diorama:ready"));
-addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose();queueOverlay.dispose(); fog.dispose(); extensionApi.dispose(); }, { once: true });
+addEventListener("pagehide", () => { publicMarkers.dispose();controls.dispose();queueOverlay.dispose(); zoomPreview.clear(); clearTimeout(cancelLoadsTimer); fog.dispose(); extensionApi.dispose(); }, { once: true });
 
 function tileUnits(z) { return map.tileUnits * (1 << z); }
 
@@ -258,6 +260,7 @@ const MAX_LOADING = 6;
 // old is the picture from before a redraw, shown until the new one is ready.
 const tiles = new Map();
 let loading = 0;
+let cancelLoadsTimer = 0;
 let wantedList = [];      // keys of the tiles the view wants, most wanted first, as of the last paint
 
 function tileKey(z, u, v) { return dim.folder + "/" + z + "/" + u + "_" + v; }
@@ -270,15 +273,20 @@ function tile(z, u, v) {
 function startLoads() {
 	const now = performance.now();
 	const wanted = new Set(wantedList);
-	// Pictures no longer on screen stop downloading, so the ones now wanted go first.
+	clearTimeout(cancelLoadsTimer);let cancelAfter=Infinity;
+	// A short grace keeps a zoom-direction reversal from restarting the same downloads.
 	for (const [key, t] of tiles) {
+		if (wanted.has(key)) t.lastWanted=now;
 		if (t.state === "loading" && !wanted.has(key)) {
+			const grace=200-(now-t.lastWanted);
+			if(grace>0){cancelAfter=Math.min(cancelAfter,grace);continue;}
 			t.img.onload = t.img.onerror = null;
 			t.img.src = "";
 			loading--;
 			tiles.delete(key);
 		}
 	}
+	if(Number.isFinite(cancelAfter))cancelLoadsTimer=setTimeout(draw,cancelAfter+1);
 	for (const key of wantedList) {
 		if (loading >= MAX_LOADING) break;
 		const parts = key.split("/"), z = parts[parts.length - 2];
@@ -290,7 +298,7 @@ function startLoads() {
 		if (t && (t.state === "loading" || (t.state === "failed" && t.retry > now) || (t.state === "ready" && t.ver === ver))) continue;
 		const img = new Image();
 		const old = !t ? null : t.state === "ready" ? t.img : t.old;
-		t = { img, state: "loading", tries: t && t.state === "failed" ? t.tries : 0, ver, old };
+		t = { img, lastWanted:now, state: "loading", tries: t && t.state === "failed" ? t.tries : 0, ver, old };
 		tiles.set(key, t);
 		loading++;
 		img.onload = () => { loading--; t.state = "ready"; t.old = null; draw(); };
@@ -314,10 +322,9 @@ function startLoads() {
 
 let pending = false;
 function draw() {
-	extensionApi.changed();
 	if (pending) return;
 	pending = true;
-	requestAnimationFrame(() => { pending = false; paint(); });
+	requestAnimationFrame(() => { pending = false; extensionApi.changed(); paint(); });
 }
 
 /** The tiles at a level that touch the view, nearest its middle first. */
@@ -350,6 +357,13 @@ function paint() {
 		fog.update({u:0,v:0,scale:1,width:w,height:h,dpr,dimension:"",enabled:false,coverage:false,rounded:true,smoke:false},[]);
 		return;
 	}
+	const state={...view,width:w,height:h,dpr,dimension:dim.id};
+	if(zoomPreview.active && zoomPreview.render(ctx,state)) {
+		fog.update({...state,interactive:true,enabled:dim.fog!=="none" && extensionApi.visible("clouds"),smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether"},[]);
+		canvas.dataset.zoomPreview='true';return;
+	}
+	canvas.dataset.zoomPreview='false';
+	zoomPreview.render(ctx,state);
 	const z = zoomFor(view.scale);
 	const left = view.u - w / 2 / view.scale, top = view.v - h / 2 / view.scale;
 	// Two levels coarser first: a handful of pictures fill the screen at once, blurred, while the
@@ -380,10 +394,11 @@ function paint() {
 		const parts=key.split("/"),level=Number(parts.at(-2));
 		if(level>=z&&level<=coarse)continue;
 		const [u,v]=parts.at(-1).split("_").map(Number),image=entry.state==="ready"?entry.img:entry.old;
-		if(image&&present[level]?.has(u+","+v))cached.push({level,u,v,image});
+		const units=tileUnits(level);
+		if(image&&present[level]?.has(u+","+v)&&u*units<left+w/view.scale&&(u+1)*units>left&&v*units<top+h/view.scale&&(v+1)*units>top)cached.push({level,u,v,image});
 	}
 	cached.sort((a,b)=>b.level-a.level);
-	for(const {level,u,v,image}of cached){
+	for(const {level,u,v,image}of cached.slice(0,48)){
 		const units=tileUnits(level),x0=sx(u*units),x1=sx((u+1)*units),y0=sy(v*units),y1=sy((v+1)*units);
 		if(x1<=0||y1<=0||x0>=canvas.width||y0>=canvas.height)continue;
 		ctx.imageSmoothingEnabled=k<map.tilePixels/map.tileUnits/(1<<level);ctx.drawImage(image,x0,y0,x1-x0,y1-y0);
@@ -405,6 +420,8 @@ function paint() {
 		}
 	}
 	fillState = { wanted: sharp.length, loaded, any };
+	paintedView=state;
+	if(complete)zoomPreview.clear();
 	fog.update({...view,width:w,height:h,dpr,dimension:dim.id,coverage:map.fogCoverage===true,
     enabled:dim.fog!=="none" && extensionApi.visible("clouds"),rounded:map.roundedFog!==false,smoke:dim.fog==="smoke" || dim.id==="minecraft:the_nether",
     validCoverage:source=>source.dimension!==dim.id || present[source.zoom]?.has(source.key)},
@@ -477,6 +494,7 @@ function limits() {
 function zoomAt(x, y, factor) {
 	const lim = limits();
 	const scale = Math.max(lim.min, Math.min(lim.max, view.scale * factor));
+	if(scale!==view.scale && paintedView?.dimension===dim?.id) zoomPreview.begin(canvas,paintedView);
 	const w = canvas.clientWidth, h = canvas.clientHeight;
 	// Following, the view zooms about the player, who stays in the middle.
 	if (follow && player && map && map.live) { x = w / 2; y = h / 2; }

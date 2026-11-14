@@ -47,6 +47,9 @@ export class WebFog {
     if(!enabled){clearTimeout(this.maskPrepareTimer);this.maskPrepareTimer=null;clearTimeout(this.deferredPaint);this.deferredPaint=null;cancelAnimationFrame(this.frame);this.frame=0;this.coverage.pause();this.maskTask?.cancel();this.maskKey='';return;}
     if(document.hidden){clearTimeout(this.maskPrepareTimer);this.maskPrepareTimer=null;return;}
     this.renderer();
+    if(state.interactive){
+      this.maskTask?.cancel();this.maskKey='';if(this.mask&&this.dimension===state.dimension)this.position(state);return;
+    }
     const l=fogLayout(state,state.width,state.height),requested=typeof sources==='function'?sources(l):sources;
     if(this.coverage.begin(requested,l,state.validCoverage))this.serial++;
     for(const source of requested)this.coverage.get(source,state.coverage);
@@ -72,7 +75,7 @@ export class WebFog {
     this.paint(performance.now());this.start();
   }
   apply(mask,job) {
-    if(this.disposed||job.key!==this.maskKey||!this.state||!cloudsEnabled(this.state))return;
+    if(this.disposed||job.key!==this.maskKey||!this.state||this.state.interactive||!cloudsEnabled(this.state))return;
     const l=job.layout,old=this.layout;
     const sameGeometry=old&&old.u===l.u&&old.v===l.v&&old.texel===l.texel&&this.dimension===job.dimension;
     const now=performance.now(),animate=!!sameGeometry&&this.appliedScale===this.state.scale&&!this.reduced.matches;
@@ -88,6 +91,7 @@ export class WebFog {
   }
   paint(time,force=false) {
     if(!this.state||!this.mask||!this.layout||this.disposed||document.hidden||!cloudsEnabled(this.state))return;
+    if(this.state.interactive){this.position(this.state);return;}
     const state={...this.state,reduced:this.reduced.matches,coarse:this.coarse.matches};
     this.position(state);
     if(!force&&time-this.lastPaint<cloudFrameInterval(state.coarse)){
