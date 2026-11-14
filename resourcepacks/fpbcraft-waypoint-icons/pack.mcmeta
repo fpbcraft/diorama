@@ -1,0 +1,12 @@
+{
+  "pack": {
+    "description": "FPBCraft \u00b7 Workshop waypoint icons",
+    "pack_format": 34,
+    "supported_formats": [
+      34,
+      1000
+    ],
+    "min_format": 34,
+    "max_format": 1000
+  }
+}

@@ -62,7 +62,10 @@ public final class WaypointIconScreen extends Screen {
 	@Override
 	protected void init() {
 		this.addRenderableWidget(Button.builder(CommonComponents.GUI_CANCEL, b -> this.onClose())
-			.bounds(this.width / 2 - 50, this.top() + this.rows() * CELL + 8, 100, 20).build());
+			.bounds(this.width / 2 + 4, this.top() + this.rows() * CELL + 8, 100, 20).build());
+        this.addRenderableWidget(Button.builder(Component.translatable("diorama.waypoint.icon_url"), b ->
+            this.minecraft.gui.setScreen(new WaypointUrlIconScreen(this, id -> { this.picked.accept(id); this.onClose(); })))
+            .bounds(this.width / 2 - 104, this.top() + this.rows() * CELL + 8, 100, 20).build());
 	}
 
 	private int cellAt(double mouseX, double mouseY) {
@@ -112,6 +115,7 @@ public final class WaypointIconScreen extends Screen {
 		if (id.isEmpty()) {
 			return Component.translatable("diorama.waypoint.icon_none");
 		}
+		if (id.startsWith("url:")) return Component.translatable("diorama.waypoint.icon_downloaded");
 		String path = id.substring(id.indexOf(':') + 1);
 		String fallback = path.replace('_', ' ');
 		fallback = fallback.isEmpty() ? id : Character.toUpperCase(fallback.charAt(0)) + fallback.substring(1);

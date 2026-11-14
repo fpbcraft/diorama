@@ -497,5 +497,11 @@
 	"diorama.map_off.about": "In a ticked dimension Diorama is off: no minimap, no map, no waypoints in the world, and nothing is mapped there.",
 	"diorama.map_off.here": "Diorama is off in this dimension. Change it in Map settings: Look, Map off in dimensions.",
 	"diorama.map_off.here_server": "This server turns Diorama off in this dimension.",
-	"diorama.map_off.here_file": "Diorama is off in this dimension, set in config/diorama-server.properties."
+	"diorama.map_off.here_file": "Diorama is off in this dimension, set in config/diorama-server.properties.",
+	"diorama.waypoint.icon_url": "From URL…",
+	"diorama.waypoint.icon_downloaded": "Downloaded icon",
+	"diorama.waypoint.icon_url_download": "Download and use",
+	"diorama.waypoint.icon_url_hint": "Paste a direct HTTPS PNG URL (up to 256 × 256, 1 MiB). Downloads once to this client. Export web appearance to use it on the server.",
+	"diorama.waypoint.icon_url_busy": "An icon is already downloading. Try again shortly.",
+	"diorama.waypoint.icon_url_loading": "Downloading image…"
 }

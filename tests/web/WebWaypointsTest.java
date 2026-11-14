@@ -50,8 +50,8 @@ public final class WebWaypointsTest {
 			WebWaypoints allowedAgain=new WebWaypoints(world,web,clock::get);allowedAgain.start();
 			waitFor(web.resolve("markers.json"),"Other owner pin",true);allowedAgain.close();
 			int[] pixels=new int[121];java.util.Arrays.fill(pixels,0xffff00ff);
-			Path iconFile=world.resolve("waypoint-icons.json");Files.writeString(iconFile,new com.google.gson.Gson().toJson(Map.of("example:station",pixels,"example:invalid",new int[3])));
-			var icons=WebWaypointIcons.load(iconFile);if(icons.size()!=1||!icons.containsKey("example:station"))throw new AssertionError("Exported icon bounds ignored");
+			Path iconFile=world.resolve("waypoint-icons.json");Files.writeString(iconFile,new com.google.gson.Gson().toJson(Map.of("example:station",pixels,"url:"+"a".repeat(40),pixels,"example:invalid",new int[3])));
+			var icons=WebWaypointIcons.load(iconFile);if(icons.size()!=2||!icons.containsKey("example:station"))throw new AssertionError("Exported icon bounds ignored");
 			WebWaypoints custom=new WebWaypoints(world,web,clock::get);custom.icons(iconFile);custom.start();
 			icon="example:station";clock.set(7000);custom.receive(a,packet("Custom station",0xff46a758));
 			String published=waitFor(web.resolve("markers.json"),"Custom station",true);
@@ -60,7 +60,12 @@ public final class WebWaypointsTest {
 			var expected=dev.diorama.render.PinArt.iconPin(icons.get(icon),0xff46a758).image();
 			var actual=ImageIO.read(web.resolve("assets/diorama-markers/pin-46a758-"+key+".png").toFile());
 			for(int y=0;y<expected.height;y++)for(int x=0;x<expected.width;x++)if(expected.argb(x,y)!=actual.getRGB(x,y))throw new AssertionError("Exported icon changed pixels");
-			custom.close();icon="diorama:home";
+			custom.close();
+			WebWaypoints downloaded=new WebWaypoints(world,web,clock::get);downloaded.icons(iconFile);downloaded.start();
+			icon="url:"+"a".repeat(40);clock.set(9000);downloaded.receive(a,packet("Downloaded URL station",0xff46a758));
+			String fromUrl=waitFor(web.resolve("markers.json"),"Downloaded URL station",true);
+			if(!fromUrl.contains(key)||fromUrl.contains("https://"))throw new AssertionError("URL icon must use exported local pixels");
+			downloaded.close();icon="diorama:home";
 			WebPins.install(web);
 			var image=ImageIO.read(web.resolve("assets/diorama-markers/ship.png").toFile());
 			var nativePin=dev.diorama.render.PinArt.standing(0xff8e4ec6,false,15,0).image();
