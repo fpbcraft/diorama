@@ -17,10 +17,11 @@ try {
   const files=[stub,projection,shape];
   const compat=join(temp,"dev/diorama/compat");await mkdir(compat,{recursive:true});
   for(const [name,from] of [["OptionalCall.java","src/main/java/dev/diorama/compat/OptionalCall.java"],["OptionalCallTest.java","tests/web/OptionalCallTest.java"]]){const out=join(compat,name);await copyFile(resolve(root,from),out);files.push(out);}
-  for(const [name,from] of [["VehicleCaster.java","src/main/java/dev/diorama/web/vehicles/VehicleCaster.java"],["VehicleSprites.java","src/main/java/dev/diorama/web/vehicles/VehicleSprites.java"],["VehiclePublicationTest.java","tests/web/VehiclePublicationTest.java"]]){const out=join(source,name);await copyFile(resolve(root,from),out);files.push(out);}
+  for(const [name,from] of [["DormantShips.java","src/main/java/dev/diorama/web/vehicles/DormantShips.java"],["DormantShipsTest.java","tests/web/DormantShipsTest.java"],["VehicleCaster.java","src/main/java/dev/diorama/web/vehicles/VehicleCaster.java"],["VehicleSprites.java","src/main/java/dev/diorama/web/vehicles/VehicleSprites.java"],["VehiclePublicationTest.java","tests/web/VehiclePublicationTest.java"]]){const out=join(source,name);await copyFile(resolve(root,from),out);files.push(out);}
   const bin=process.env.JAVA_HOME?join(process.env.JAVA_HOME,"bin"):"/Library/Java/JavaVirtualMachines/openjdk-21.jdk/Contents/Home/bin";
   execFileSync(join(bin,"javac"),["-d",temp,...files],{stdio:"inherit"});
   execFileSync(join(bin,"java"),["-cp",temp,"dev.diorama.web.vehicles.VehiclePublicationTest",...(process.argv[2]==="--assets"?[resolve(process.argv[3])]:[])],{stdio:"inherit"});
+  execFileSync(join(bin,"java"),["-cp",temp,"dev.diorama.web.vehicles.DormantShipsTest"],{stdio:"inherit"});
   await rm(join(compat,"OptionalCallTest$ClientOnly.class"));
   execFileSync(join(bin,"java"),["-cp",temp,"dev.diorama.compat.OptionalCallTest"],{stdio:"inherit"});
 }finally{await rm(temp,{recursive:true,force:true});}
