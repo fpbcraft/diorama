@@ -1,2 +1,2 @@
-Enable this pack in Minecraft Resource Packs, then edit a Diorama waypoint and choose an icon.
-For web pins, export /diorama-export-web-appearance with the pack enabled and copy its output to the server config.
+These icons are bundled in the FPBCraft Diorama core JAR for clients and servers. No separate pack activation or export is needed.
+The standalone ZIP can also be enabled as a normal resource pack. Custom replacements can be exported with /diorama-export-web-appearance.

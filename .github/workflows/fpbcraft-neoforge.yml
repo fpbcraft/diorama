@@ -46,7 +46,7 @@ jobs:
       - name: Check material-slot model rendering
         run: node scripts/test-material-models.mjs
       - name: Check public waypoint ownership and native pins
-        run: node scripts/test-web-markers.mjs
+        run: node scripts/test-web-markers.mjs --jar
       - name: Compile FPBCraft companion addon
         run: ./gradlew -p addons/fpbcraft-map-addon build --stacktrace
       - name: Build independent web-assets addon

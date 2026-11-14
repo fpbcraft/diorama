@@ -1,4 +1,4 @@
-import { mkdtemp,mkdir,copyFile,writeFile,rm,readdir,cp } from 'node:fs/promises';
+import { mkdtemp,mkdir,copyFile,writeFile,rm,readdir,cp,readFile,access } from 'node:fs/promises';
 import { tmpdir,homedir } from 'node:os';
 import { join,resolve,delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +23,14 @@ try{
  const files=[annotation,logger];
  for(const name of ['WebPins','WebWaypoints','WebWaypointIcons']){const out=join(source,name+'.java');await copyFile(join(root,'src/main/java/dev/diorama/web',name+'.java'),out);files.push(out);}
  for(const [input,output]of [['src/main/java/dev/diorama/render/PinArt.java',join(render,'PinArt.java')],['tests/web/WebWaypointsTest.java',join(source,'WebWaypointsTest.java')]]){await copyFile(join(root,input),output);files.push(output);}
- await cp(join(root,'src/main/resources/assets'),join(temp,'assets'),{recursive:true});
+ let bundledJar;
+ if(process.argv.includes('--jar')){
+  const version=(await readFile(join(root,'gradle.properties'),'utf8')).match(/^mod_version=(.+)$/m)?.[1]?.trim();
+  if(!version)throw Error('Missing core mod_version');
+  bundledJar=join(root,'versions/1.21.1-neoforge/build/libs',`diorama-${version}+neoforge-1.21.1.jar`);
+  await access(bundledJar);
+ }else await cp(join(root,'src/main/resources/assets'),join(temp,'assets'),{recursive:true});
  const bin=process.env.JAVA_HOME?join(process.env.JAVA_HOME,'bin'):'/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home/bin';
  execFileSync(join(bin,'javac'),['-cp',gson,'-d',temp,...files],{stdio:'inherit'});
- execFileSync(join(bin,'java'),['-cp',temp+delimiter+gson,'dev.diorama.web.WebWaypointsTest',...(process.argv[2]==='--assets'?[resolve(process.argv[3])]:[])],{stdio:'inherit',timeout:30000});
+ execFileSync(join(bin,'java'),['-cp',temp+delimiter+gson+(bundledJar?delimiter+bundledJar:''),'dev.diorama.web.WebWaypointsTest',...(process.argv[2]==='--assets'?[resolve(process.argv[3])]:[])],{stdio:'inherit',timeout:30000});
 }finally{await rm(temp,{recursive:true,force:true});}

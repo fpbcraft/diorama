@@ -4,6 +4,7 @@ from pathlib import Path
 import binascii
 import json
 import struct
+import shutil
 import zipfile
 import zlib
 
@@ -69,11 +70,13 @@ def main():
     PACK.mkdir(parents=True, exist_ok=True)
     (PACK / 'pack.mcmeta').write_text(json.dumps({'pack': {'description': 'FPBCraft · Workshop waypoint icons', 'pack_format': 34, 'supported_formats': [34, 1000], 'min_format': 34, 'max_format': 1000}}, indent=2) + '\n')
     (PACK / 'LICENSE.txt').write_text('Original FPBCraft workshop waypoint pixel art. Dedicated to the public domain under CC0 1.0.\nhttps://creativecommons.org/publicdomain/zero/1.0/\n')
-    (PACK / 'README.txt').write_text('Enable this pack in Minecraft Resource Packs, then edit a Diorama waypoint and choose an icon.\nFor web pins, export /diorama-export-web-appearance with the pack enabled and copy its output to the server config.\n')
+    (PACK / 'README.txt').write_text('These icons are bundled in the FPBCraft Diorama core JAR for clients and servers. No separate pack activation or export is needed.\nThe standalone ZIP can also be enabled as a normal resource pack. Custom replacements can be exported with /diorama-export-web-appearance.\n')
     names = {}
+    resolved = {}
     cells = []
     for name, rows in ICONS.items():
         art = pixels(rows)
+        resolved[f'fpbcraft:{name}'] = [int.from_bytes(bytes((a, r, g, b)), 'big', signed=True) for r, g, b, a in art]
         png(PACK / f'assets/fpbcraft/textures/waypoint_icons/{name}.png', 11, 11, art)
         names[f'diorama.waypoint.icon.fpbcraft.{name}'] = name.replace('_', ' ').title()
         cells.append(f'<figure><img src="../../resourcepacks/fpbcraft-waypoint-icons/assets/fpbcraft/textures/waypoint_icons/{name}.png" alt=""><figcaption>{name.title()}</figcaption></figure>')
@@ -90,6 +93,13 @@ def main():
                 info = zipfile.ZipInfo(path.relative_to(PACK).as_posix(), (2026, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 archive.writestr(info, path.read_bytes())
+    resources = ROOT / 'src/main/resources'
+    shutil.copytree(PACK / 'assets/fpbcraft', resources / 'assets/fpbcraft', dirs_exist_ok=True)
+    (resources / 'assets/fpbcraft/waypoint-icons.json').write_text(json.dumps(resolved, separators=(',', ':')) + '\n')
+    shutil.copy2(PACK / 'LICENSE.txt', resources / 'assets/fpbcraft/WAYPOINT_ICONS_LICENSE.txt')
+    bundled_pack = resources / 'diorama/packs/fpbcraft-waypoint-icons.zip'
+    bundled_pack.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(out, bundled_pack)
     (out.parent / 'fpbcraft-preview.html').write_text('<!doctype html><meta charset="utf-8"><title>FPBCraft waypoint icons</title><style>body{background:#111a22;color:#f0e9d4;font:16px system-ui;margin:36px}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:16px}figure{margin:0;padding:20px;text-align:center;background:#1c2b35;border-radius:8px}img{width:66px;height:66px;image-rendering:pixelated}figcaption{margin-top:12px}</style><h1>Workshop waypoint icons</h1><p>24 original 11 × 11 pixel icons · CC0</p><main>' + ''.join(cells) + '</main>')
     print(f'Built {len(ICONS)} icons: {out}')
 

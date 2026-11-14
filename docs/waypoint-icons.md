@@ -10,9 +10,13 @@ The export stores the same resolved 11×11 pixels that the in-game pins use, inc
 
 ## FPBCraft workshop pack
 
-Download [FPBCraft waypoint icons](waypoint-icons/fpbcraft-waypoint-icons.zip?raw=true) and enable the ZIP in **Options → Resource Packs**. Its 24 original 11×11 icons cover workshops, factories, cogs, trains, stations, rails, airships, ships, harbours, warehouses, mines, quarries, smelters, power, mills, bridges, markets, colonies, construction, supplies, portals, farms and forests. They appear in Diorama's normal icon picker under the `fpbcraft` namespace. The art is CC0; [preview the set](waypoint-icons/fpbcraft-preview.html).
+The FPBCraft Diorama core JAR bundles 24 original 11×11 icons for workshops, factories, cogs, trains, stations, rails, airships, ships, harbours, warehouses, mines, quarries, smelters, power, mills, bridges, markets, colonies, construction, supplies, portals, farms and forests. They appear automatically in Diorama's normal icon picker under the `fpbcraft` namespace. No separate resource-pack installation or activation is needed.
 
-Source files are in `resourcepacks/fpbcraft-waypoint-icons/`; regenerate the images, pack ZIP and preview with `python3 scripts/build-waypoint-pack.py`. No build-time image library or network access is needed. The pack's metadata follows Diorama's multi-version example format.
+The dedicated server uses the identical bundled pixels to compose web waypoint pins. Choose an icon and **Show on web map** in the client; the matching server JAR needs no appearance export for these icons. An administrator's optional appearance export still takes priority, so resource-pack replacements and downloaded URL icons remain supported.
+
+An optional [standalone resource-pack ZIP](waypoint-icons/fpbcraft-waypoint-icons.zip?raw=true) is also available and is embedded inside the core JAR at `diorama/packs/fpbcraft-waypoint-icons.zip`. The art is CC0; [preview the set](waypoint-icons/fpbcraft-preview.html).
+
+Editable sources are in `resourcepacks/fpbcraft-waypoint-icons/`. Run `python3 scripts/build-waypoint-pack.py` to regenerate the pack ZIP, JAR assets, server pixel table and preview together. The generator uses only Python's standard library. Its metadata follows Diorama's multi-version example format.
 
 ## Icons from a URL
 
