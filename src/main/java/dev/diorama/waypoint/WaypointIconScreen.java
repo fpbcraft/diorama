@@ -19,8 +19,6 @@ import net.minecraft.network.chat.Component;
 public final class WaypointIconScreen extends Screen {
 	/** Wide enough for the initials badge with four letters. */
 	private static final int CELL = 34;
-	/** Columns when the icons fit in the window's height; a resource pack's many icons get more. */
-	private static final int MIN_COLUMNS = 6;
 	private static final int LABEL = 0xFFA0A0A0;
 
 	private final Screen parent;
@@ -28,6 +26,8 @@ public final class WaypointIconScreen extends Screen {
 	private final String current;
 	private final Consumer<String> picked;
 	private final List<String> icons = new ArrayList<>();
+	private int page;
+	private boolean opened;
 
 	public WaypointIconScreen(Screen parent, Waypoint shown, String current, Consumer<String> picked) {
 		super(Component.translatable("diorama.waypoint.icon_title"));
@@ -41,43 +41,58 @@ public final class WaypointIconScreen extends Screen {
 		this.icons.addAll(WaypointIcons.all());
 	}
 
-	private int columns() {
-		// Room for the title above and Cancel below.
-		int rows = Math.max(1, (this.height - 64) / CELL);
-		return Math.max(MIN_COLUMNS, (this.icons.size() + rows - 1) / rows);
-	}
-
-	private int rows() {
-		return (this.icons.size() + this.columns() - 1) / this.columns();
-	}
+	private WaypointIconGrid grid() { return WaypointIconGrid.fit(this.width, this.height, this.icons.size(), this.page); }
+	private int columns() { return this.grid().columns(); }
+	private int rows() { return this.grid().rows(); }
 
 	private int left() {
 		return this.width / 2 - this.columns() * CELL / 2;
 	}
 
 	private int top() {
-		return this.height / 2 - (this.rows() * CELL + 28) / 2;
+		return this.height / 2 - (this.rows() * CELL + 28 + (this.grid().pages() > 1 ? 24 : 0)) / 2;
 	}
 
 	@Override
 	protected void init() {
+		if (!this.opened) {
+			this.page = Math.max(0, this.icons.indexOf(this.current)) / this.grid().pageSize();
+			this.opened = true;
+		}
+		this.page = this.grid().page();
 		this.addRenderableWidget(Button.builder(CommonComponents.GUI_CANCEL, b -> this.onClose())
 			.bounds(this.width / 2 + 4, this.top() + this.rows() * CELL + 8, 100, 20).build());
-        this.addRenderableWidget(Button.builder(Component.translatable("diorama.waypoint.icon_url"), b ->
-            this.minecraft.gui.setScreen(new WaypointUrlIconScreen(this, id -> { this.picked.accept(id); this.onClose(); })))
-            .bounds(this.width / 2 - 104, this.top() + this.rows() * CELL + 8, 100, 20).build());
+		this.addRenderableWidget(Button.builder(Component.translatable("diorama.waypoint.icon_url"), b ->
+			this.minecraft.gui.setScreen(new WaypointUrlIconScreen(this, id -> { this.picked.accept(id); this.onClose(); })))
+			.bounds(this.width / 2 - 104, this.top() + this.rows() * CELL + 8, 100, 20).build());
+		if (this.grid().pages() > 1) {
+			int y = this.top() + this.rows() * CELL + 32;
+			var previous = this.addRenderableWidget(Button.builder(Component.translatable("diorama.waypoint.icons_previous"), b -> this.turn(-1))
+				.bounds(this.width / 2 - 104, y, 76, 20).build());
+			previous.active = this.page > 0;
+			var next = this.addRenderableWidget(Button.builder(Component.translatable("diorama.waypoint.icons_next"), b -> this.turn(1))
+				.bounds(this.width / 2 + 28, y, 76, 20).build());
+			next.active = this.page + 1 < this.grid().pages();
+		}
 	}
+
+	private void turn(int delta) { this.page += delta; this.rebuildWidgets(); }
 
 	private int cellAt(double mouseX, double mouseY) {
 		int col = (int) Math.floor((mouseX - this.left()) / CELL);
 		int row = (int) Math.floor((mouseY - this.top()) / CELL);
-		int i = row * this.columns() + col;
-		return col < 0 || col >= this.columns() || row < 0 || i >= this.icons.size() ? -1 : i;
+		int slot = row * this.columns() + col;
+		return col < 0 || col >= this.columns() || row < 0 || row >= this.rows() || slot >= this.grid().visible() ? -1 : this.grid().start() + slot;
 	}
 
 	/** The centre of an icon's cell, in GUI pixels. For tests. */
 	public float[] cellCentre(String id) {
-		int i = this.icons.indexOf(id);
+		int index = this.icons.indexOf(id);
+		if (index >= 0 && index / this.grid().pageSize() != this.page) {
+			this.page = index / this.grid().pageSize();
+			this.rebuildWidgets();
+		}
+		int i = index - this.grid().start();
 		return new float[] {this.left() + (i % this.columns()) * CELL + CELL / 2.0F, this.top() + (i / this.columns()) * CELL + CELL / 2.0F};
 	}
 
@@ -88,10 +103,13 @@ public final class WaypointIconScreen extends Screen {
 		int top = this.top();
 		graphics.centeredText(this.font, this.title, this.width / 2, top - 14, 0xFFFFFFFF);
 		ScreenArt.list(graphics, left - 2, top - 2, left + this.columns() * CELL + 2, top + this.rows() * CELL + 2);
+		if (this.grid().pages() > 1) graphics.centeredText(this.font,
+			Component.literal((this.page + 1) + " / " + this.grid().pages()), this.width / 2, top + this.rows() * CELL + 38, 0xFFA0A0A0);
 		int hovered = this.cellAt(mouseX, mouseY);
-		for (int i = 0; i < this.icons.size(); i++) {
-			int x = left + (i % this.columns()) * CELL;
-			int y = top + (i / this.columns()) * CELL;
+		for (int slot = 0; slot < this.grid().visible(); slot++) {
+			int i = this.grid().start() + slot;
+			int x = left + (slot % this.columns()) * CELL;
+			int y = top + (slot / this.columns()) * CELL;
 			String id = this.icons.get(i);
 			if (id.equals(this.current)) {
 				ScreenArt.selection(graphics, x, y, x + CELL, y + CELL);

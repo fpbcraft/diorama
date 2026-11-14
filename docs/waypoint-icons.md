@@ -16,7 +16,7 @@ Source files are in `resourcepacks/fpbcraft-waypoint-icons/`; regenerate the ima
 
 ## Icons from a URL
 
-In the waypoint editor, open the icon picker, choose **From URL…**, paste a direct **HTTPS PNG** URL, and press **Download and use**. The client downloads the image once, then saves it locally under `.minecraft/diorama/waypoint-icons/`. Downloaded icons remain in the picker after restart and use the same cropping and 11×11 sizing as pack icons.
+In the waypoint editor, open the icon picker, choose **From URL…**, paste a direct **HTTPS PNG** URL, and press **Download and use**. The client downloads the image once, then saves it locally under `.minecraft/diorama/waypoint-icons/`. Large sets are paged to fit the game window. Downloaded icons remain in the picker after restart and use the same cropping and 11×11 sizing as pack icons.
 
 The host receives a request only when you explicitly import an image. Incoming/shared waypoints and rendering never trigger downloads. URLs with logins, fragments, custom ports, redirects or local/private hosts are rejected. PNGs must be at most 256×256 pixels and 1 MiB; the cache is limited to 128 icons. A total download deadline prevents a slow host from holding the importer open indefinitely. Use an original image you own or have permission to use.
 
