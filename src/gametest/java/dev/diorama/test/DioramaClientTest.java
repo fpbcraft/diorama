@@ -1,6 +1,7 @@
 package dev.diorama.test;
 
 import dev.diorama.Claims;
+import dev.diorama.ClaimProjection;
 import dev.diorama.Diorama;
 import dev.diorama.DioramaClient;
 import dev.diorama.MapMenu;
@@ -4666,10 +4667,9 @@ public class DioramaClientTest implements FabricClientGameTest {
 	/**
 	 * Land claims from FTB Chunks, with FTB Chunks installed (opt-in: DIORAMA_TESTS=ftb-claims). The
 	 * player's team claims the chunks round the player, force loads the middle one, and a server
-	 * team claims chunks to the east. The map tints each claim in its team's colour on the ground it
-	 * covers: the top of a tower in the claim is tinted though it's drawn north of the claim's
-	 * ground, and the ground north of the claim isn't. Zoomed far out, and on the minimap, the claims
-	 * show too. Unclaiming takes the tint away.
+	 * team claims chunks to the east. The map tints each claim on a flat chunk grid, with straight
+	 * edges independent of the tower and terrain heights. The grid survives old saved tiles without
+	 * chunk metadata and appears on the minimap and overviews. Unclaiming takes the tint away.
 	 */
 	private static void ftbClaims(ClientGameTestContext context, TestSingleplayerContext world) {
 		if (!context.computeOnClient(mc -> dev.diorama.compat.FtbChunks.available())) {
@@ -4691,7 +4691,7 @@ public class DioramaClientTest implements FabricClientGameTest {
 		context.waitFor(mc -> Claims.get().at((spawnX + 80) >> 4, spawnZ >> 4) != null && Claims.get().at(spawnX >> 4, spawnZ >> 4) != null, 600);
 		openMapOnPlayer(context);
 		context.waitFor(mc -> claimsShown(new TileKey(TileKey.SURFACE, Math.floorDiv(spawnX, Projection.TILE_UNITS),
-			Math.floorDiv((int) Math.floor(Projection.v(spawnY, spawnZ)), Projection.TILE_UNITS))), 200);
+			Math.floorDiv((int) Math.floor(Projection.v(ClaimProjection.SURFACE_Y, spawnZ)), Projection.TILE_UNITS))), 200);
 		settle(context, 20);
 		context.takeScreenshot("ftb-claims-00-spawn");
 		lookAtPlayer(context, 2.0, TileKey.SURFACE);
@@ -4773,18 +4773,18 @@ public class DioramaClientTest implements FabricClientGameTest {
 		}
 		settle(context, 40);
 
-		// The tower's top is in the claim; the ground just north of the claim isn't, though a ray
-		// at its row crosses the claim lower down.
+		// Heights no longer warp the boundary: the tower's chunk belongs to the same flat grid,
+		// and the adjacent unclaimed chunks stay outside its rectangle.
 		int claimNorth = (playerChunkZ - 1) << 4;
-		assertClaimTint(context, towerX + 0.5, top + 1, towerZ + 0.5, true, "the tower's top");
-		assertClaimTint(context, cx + 0.5, y, claimNorth - 3 + 0.5, false, "the ground north of the claim");
-		assertClaimTint(context, cx + 0.5, y, cz + 0.5, true, "the ground under the player");
-		assertClaimTint(context, cx + 64 + 0.5, y, cz + 0.5, true, "Spawn's ground");
-		assertClaimTint(context, cx + 30 + 0.5, y, cz + 0.5, false, "the ground between the claims");
+		assertClaimTint(context, towerX + 0.5, towerZ + 0.5, true, "the tower's chunk on the flat grid");
+		assertClaimTint(context, cx + 0.5, claimNorth - 3 + 0.5, false, "the ground north of the claim");
+		assertClaimTint(context, cx + 0.5, cz + 0.5, true, "the ground under the player");
+		assertClaimTint(context, cx + 64 + 0.5, cz + 0.5, true, "Spawn's ground");
+		assertClaimTint(context, cx + 30 + 0.5, cz + 0.5, false, "the ground between the claims");
 
 		openMapOnPlayer(context);
 		context.waitFor(mc -> claimsShown(new TileKey(TileKey.SURFACE, Math.floorDiv(cx, Projection.TILE_UNITS),
-			Math.floorDiv((int) Math.floor(Projection.v(y, cz)), Projection.TILE_UNITS))), 200);
+			Math.floorDiv((int) Math.floor(Projection.v(ClaimProjection.SURFACE_Y, cz)), Projection.TILE_UNITS))), 200);
 		context.takeScreenshot("ftb-claims-01-map");
 		lookAtPlayer(context, 1.0, TileKey.SURFACE);
 		settle(context, 20);
@@ -4805,7 +4805,7 @@ public class DioramaClientTest implements FabricClientGameTest {
 		double[] far = {0.25, 0.12};
 		for (int i = 0; i < far.length; i++) {
 			double zoom = far[i];
-			context.runOnClient(mc -> ((MapScreen) mc.gui.screen()).lookAt(spawnX, Projection.v(spawnY, spawnZ), zoom, TileKey.SURFACE));
+			context.runOnClient(mc -> ((MapScreen) mc.gui.screen()).lookAt(spawnX, Projection.v(ClaimProjection.SURFACE_Y, spawnZ), zoom, TileKey.SURFACE));
 			// The view the screen reports is the one it last drew.
 			context.waitTicks(3);
 			int lod = context.computeOnClient(mc -> MapViewport.lodFor(MapSession.get().map(), ((MapScreen) mc.gui.screen()).view()));
@@ -4813,17 +4813,16 @@ public class DioramaClientTest implements FabricClientGameTest {
 				throw new AssertionError("Zoomed out to " + zoom + ", the map should show overview tiles");
 			}
 			TileKey overview = new TileKey(TileKey.SURFACE, Math.floorDiv(spawnX, Projection.TILE_UNITS << lod),
-				Math.floorDiv((int) Math.floor(Projection.v(spawnY, spawnZ)), Projection.TILE_UNITS << lod), lod);
+				Math.floorDiv((int) Math.floor(Projection.v(ClaimProjection.SURFACE_Y, spawnZ)), Projection.TILE_UNITS << lod), lod);
 			context.waitFor(mc -> claimsShown(overview), 600);
 			settle(context, 20);
 			context.takeScreenshot("ftb-claims-04-map-far-lod" + lod);
 			if (i == far.length - 1) {
-				// A map saved before overview tiles kept their chunks: the claims go, and come back
-				// once the tiles under it are rebuilt.
+				// Old maps without terrain chunk metadata retain their straight claim grid.
 				MapLevel level = context.computeOnClient(mc -> MapSession.get().map());
 				level.forgetChunks(overview);
-				context.waitFor(mc -> !claimsShown(overview), 200);
-				context.waitFor(mc -> claimsShown(overview), 1200);
+				context.waitTicks(20);
+				if (!context.computeOnClient(mc -> claimsShown(overview))) throw new AssertionError("Flat claims must survive missing saved chunk metadata");
 				context.takeScreenshot("ftb-claims-04-map-far-migrated");
 			}
 		}
@@ -4837,8 +4836,8 @@ public class DioramaClientTest implements FabricClientGameTest {
 		long unclaimed = System.nanoTime();
 		context.waitFor(mc -> Claims.get().at(playerChunkX, playerChunkZ) == null, 600);
 		Diorama.LOGGER.info("FTB unclaim reached the map's claims {} ms after the command", (System.nanoTime() - unclaimed) / 1_000_000);
-		assertClaimTint(context, cx + 0.5, y, cz + 0.5, false, "the ground under the player after unclaiming");
-		assertClaimTint(context, cx + 64 + 0.5, y, cz + 0.5, true, "Spawn's ground after the player unclaimed");
+		assertClaimTint(context, cx + 0.5, cz + 0.5, false, "the ground under the player after unclaiming");
+		assertClaimTint(context, cx + 64 + 0.5, cz + 0.5, true, "Spawn's ground after the player unclaimed");
 		openMapOnPlayer(context);
 		context.waitTicks(40);
 		context.takeScreenshot("ftb-claims-06-unclaimed");
@@ -4863,7 +4862,7 @@ public class DioramaClientTest implements FabricClientGameTest {
 			}
 			return n;
 		});
-		TileKey here = new TileKey(TileKey.SURFACE, Math.floorDiv(cx, Projection.TILE_UNITS), Math.floorDiv((int) Math.floor(Projection.v(y, cz)), Projection.TILE_UNITS));
+		TileKey here = new TileKey(TileKey.SURFACE, Math.floorDiv(cx, Projection.TILE_UNITS), Math.floorDiv((int) Math.floor(Projection.v(ClaimProjection.SURFACE_Y, cz)), Projection.TILE_UNITS));
 		long paint = context.computeOnClient(mc -> {
 			MapSession.get().map().claimPixels(here);
 			long t = System.nanoTime();
@@ -4961,14 +4960,14 @@ public class DioramaClientTest implements FabricClientGameTest {
 			throw new AssertionError("A chunk outside the claims shows as claimed");
 		}
 		settle(context, 40);
-		assertClaimTint(context, cx + 0.5, y, cz + 0.5, true, "the ground under the player");
-		assertClaimTint(context, cx + 64 + 0.5, y, cz + 0.5, true, "the server claim's ground");
-		assertClaimTint(context, cx + 36 + 0.5, y, cz + 0.5, false, "the ground between the claims");
-		assertClaimTint(context, cx + 0.5, y, cz - 28 + 0.5, false, "the ground north of the claim");
+		assertClaimTint(context, cx + 0.5, cz + 0.5, true, "the ground under the player");
+		assertClaimTint(context, cx + 64 + 0.5, cz + 0.5, true, "the server claim's ground");
+		assertClaimTint(context, cx + 36 + 0.5, cz + 0.5, false, "the ground between the claims");
+		assertClaimTint(context, cx + 0.5, cz - 28 + 0.5, false, "the ground north of the claim");
 
 		openMapOnPlayer(context);
 		context.waitFor(mc -> claimsShown(new TileKey(TileKey.SURFACE, Math.floorDiv(cx, Projection.TILE_UNITS),
-			Math.floorDiv((int) Math.floor(Projection.v(y, cz)), Projection.TILE_UNITS))), 200);
+			Math.floorDiv((int) Math.floor(Projection.v(ClaimProjection.SURFACE_Y, cz)), Projection.TILE_UNITS))), 200);
 		settle(context, 20);
 		context.takeScreenshot("opac-claims-01-map");
 		lookAtPlayer(context, 1.0, TileKey.SURFACE);
@@ -4977,15 +4976,15 @@ public class DioramaClientTest implements FabricClientGameTest {
 		// Hovering a claimed spot names it, as Open Parties and Claims does: the player's, then the server's.
 		lookAtPlayer(context, 4.0, TileKey.SURFACE);
 		settle(context, 10);
-		double[] spot = mapPoint(context, 20, 2);
+		double[] spot = claimMapPoint(context, 20, 2);
 		moveCursor(context, spot[2], spot[3]);
 		context.waitTicks(10);
 		context.takeScreenshot("opac-claims-03-hover");
-		spot = mapPoint(context, 0, 2);
+		spot = claimMapPoint(context, 0, 2);
 		moveCursor(context, spot[2], spot[3]);
 		context.waitTicks(10);
 		context.takeScreenshot("opac-claims-03-hover-force-loaded");
-		spot = mapPoint(context, 64, 2);
+		spot = claimMapPoint(context, 64, 2);
 		moveCursor(context, spot[2], spot[3]);
 		context.waitTicks(10);
 		context.takeScreenshot("opac-claims-03-hover-server");
@@ -5063,8 +5062,8 @@ public class DioramaClientTest implements FabricClientGameTest {
 		context.waitFor(mc -> Claims.get().at(playerChunkX, playerChunkZ) == null, 600);
 		Diorama.LOGGER.info("Open Parties and Claims unclaim reached the map's claims {} ms after the request", (System.nanoTime() - unclaimed) / 1_000_000);
 		settle(context, 20);
-		assertClaimTint(context, cx + 0.5, y, cz + 0.5, false, "the ground under the player after unclaiming");
-		assertClaimTint(context, cx + 64 + 0.5, y, cz + 0.5, true, "the server claim's ground after the player unclaimed");
+		assertClaimTint(context, cx + 0.5, cz + 0.5, false, "the ground under the player after unclaiming");
+		assertClaimTint(context, cx + 64 + 0.5, cz + 0.5, true, "the server claim's ground after the player unclaimed");
 		openMapOnPlayer(context);
 		context.waitTicks(40);
 		context.takeScreenshot("opac-claims-06-unclaimed");
@@ -5192,14 +5191,14 @@ public class DioramaClientTest implements FabricClientGameTest {
 			throw new AssertionError("The colony's land isn't the block of chunks round its middle: it reaches " + reach + " chunks east, " + chunks + " chunks in all");
 		}
 		settle(context, 40);
-		assertClaimTint(context, cx + 0.5, y, cz + 0.5, true, "the ground under the player");
-		assertClaimTint(context, cx + r * 16 + 0.5, y, cz + 0.5, true, "the colony's easternmost chunk");
-		assertClaimTint(context, cx + (r + 1) * 16 + 0.5, y, cz + 0.5, false, "the ground east of the colony");
-		assertClaimTint(context, cx + 0.5, y, cz - (r + 1) * 16 + 0.5, false, "the ground north of the colony");
+		assertClaimTint(context, cx + 0.5, cz + 0.5, true, "the ground under the player");
+		assertClaimTint(context, cx + r * 16 + 0.5, cz + 0.5, true, "the colony's easternmost chunk");
+		assertClaimTint(context, cx + (r + 1) * 16 + 0.5, cz + 0.5, false, "the ground east of the colony");
+		assertClaimTint(context, cx + 0.5, cz - (r + 1) * 16 + 0.5, false, "the ground north of the colony");
 
 		openMapOnPlayer(context);
 		context.waitFor(mc -> claimsShown(new TileKey(TileKey.SURFACE, Math.floorDiv(cx, Projection.TILE_UNITS),
-			Math.floorDiv((int) Math.floor(Projection.v(y, cz)), Projection.TILE_UNITS))), 200);
+			Math.floorDiv((int) Math.floor(Projection.v(ClaimProjection.SURFACE_Y, cz)), Projection.TILE_UNITS))), 200);
 		settle(context, 20);
 		context.takeScreenshot("minecolonies-01-map");
 		lookAtPlayer(context, 1.0, TileKey.SURFACE);
@@ -5208,7 +5207,7 @@ public class DioramaClientTest implements FabricClientGameTest {
 		// Hovering the colony's land names the colony.
 		lookAtPlayer(context, 2.0, TileKey.SURFACE);
 		settle(context, 10);
-		double[] spot = mapPoint(context, 20, 2);
+		double[] spot = claimMapPoint(context, 20, 2);
 		moveCursor(context, spot[2], spot[3]);
 		context.waitTicks(10);
 		context.takeScreenshot("minecolonies-03-hover");
@@ -5248,7 +5247,7 @@ public class DioramaClientTest implements FabricClientGameTest {
 		openMapOnPlayer(context);
 		lookAtPlayer(context, 2.0, TileKey.SURFACE);
 		settle(context, 40);
-		spot = mapPoint(context, 20, 2);
+		spot = claimMapPoint(context, 20, 2);
 		moveCursor(context, spot[2], spot[3]);
 		context.waitTicks(10);
 		context.takeScreenshot("minecolonies-06-renamed");
@@ -5278,8 +5277,8 @@ public class DioramaClientTest implements FabricClientGameTest {
 				throw new AssertionError("Expected the player's claim inside and outside the colony, and the colony's land round it: " + inside + ", " + outside + ", " + rest);
 			}
 			settle(context, 40);
-			assertClaimTint(context, cx + (r + 2) * 16 + 0.5, y, cz + 0.5, true, "the claim outside the colony");
-			assertClaimTint(context, cx + (r + 1) * 16 + 0.5, y, cz + 0.5, false, "the ground between the colony and the claim");
+			assertClaimTint(context, cx + (r + 2) * 16 + 0.5, cz + 0.5, true, "the claim outside the colony");
+			assertClaimTint(context, cx + (r + 1) * 16 + 0.5, cz + 0.5, false, "the ground between the colony and the claim");
 			lookAtPlayer(context, 1.0, TileKey.SURFACE);
 			settle(context, 20);
 			// Hovering the claim outside the colony names it; the one inside stays in view.
@@ -5323,7 +5322,7 @@ public class DioramaClientTest implements FabricClientGameTest {
 		context.waitFor(mc -> Claims.get().isEmpty(), 600);
 		Diorama.LOGGER.info("MineColonies colony left the map's claims {} ms after it was deleted", (System.nanoTime() - deleted) / 1_000_000);
 		settle(context, 20);
-		assertClaimTint(context, cx + 0.5, y, cz + 0.5, false, "the ground under the player after the colony was deleted");
+		assertClaimTint(context, cx + 0.5, cz + 0.5, false, "the ground under the player after the colony was deleted");
 		openMapOnPlayer(context);
 		context.waitTicks(40);
 		context.takeScreenshot("minecolonies-08-deleted");
@@ -5448,9 +5447,9 @@ public class DioramaClientTest implements FabricClientGameTest {
 		return tile != null && tile.claims() != null;
 	}
 
-	/** Checks whether the map tints the top of the block at a spot ({@code y} is the height of its top face) as claimed. */
-	private static void assertClaimTint(ClientGameTestContext context, double x, double y, double z, boolean claimed, String what) {
-		double v = Projection.v(y, z);
+	/** Checks claim tint at a world X/Z position on the flat claim grid. */
+	private static void assertClaimTint(ClientGameTestContext context, double x, double z, boolean claimed, String what) {
+		double v = Projection.v(ClaimProjection.SURFACE_Y, z);
 		TileKey key = new TileKey(TileKey.SURFACE, Math.floorDiv((int) Math.floor(x), Projection.TILE_UNITS), Math.floorDiv((int) Math.floor(v), Projection.TILE_UNITS));
 		int px = (int) Math.floor((x - key.minU()) * Projection.PIXELS_PER_UNIT);
 		int py = (int) Math.floor((v - key.minV()) * Projection.PIXELS_PER_UNIT);
@@ -5656,6 +5655,17 @@ public class DioramaClientTest implements FabricClientGameTest {
 			MapViewport.View view = ((MapScreen) mc.gui.screen()).view();
 			double u = mc.player.getBlockX() + east + 0.5;
 			double v = Projection.v(mc.player.getY(), mc.player.getZ()) + down;
+			double scale = mc.getWindow().getGuiScale();
+			return new double[] {u, v, view.screenX(u) * scale, view.screenY(v) * scale};
+		});
+	}
+
+	/** Claim-grid equivalent of mapPoint, independent of player/terrain height. */
+	private static double[] claimMapPoint(ClientGameTestContext context, int east, int down) {
+		return context.computeOnClient(mc -> {
+			MapViewport.View view = ((MapScreen) mc.gui.screen()).view();
+			double u = mc.player.getBlockX() + east + 0.5;
+			double v = Projection.v(ClaimProjection.SURFACE_Y, mc.player.getZ()) + down;
 			double scale = mc.getWindow().getGuiScale();
 			return new double[] {u, v, view.screenX(u) * scale, view.screenY(v) * scale};
 		});

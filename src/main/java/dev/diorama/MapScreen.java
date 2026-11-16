@@ -592,14 +592,14 @@ public final class MapScreen extends Screen {
 					*///?}
 				}
 			} else if (hovered != null && hovered.kind() == Radar.Kind.PLAYER) {
-				this.tooltipLines = withClaim(Radar.describe(hovered, viewer), hovered.entity().getBlockX(), hovered.entity().getBlockZ());
+				this.tooltipLines = this.withClaimAt(Radar.describe(hovered, viewer), mouseX, mouseY);
 			} else if (hoveredPin != null) {
 				Waypoint waypoint = hoveredPin.waypoint();
 				// Another dimension's map: the claims known are those of the dimension the player is in.
 				this.tooltipLines = elsewhere ? List.of(Component.literal(waypoint.shownName()).getVisualOrderText())
-					: withClaim(WaypointOverlay.describe(waypoint, viewer), waypoint.x, waypoint.z);
+					: this.withClaimAt(WaypointOverlay.describe(waypoint, viewer), mouseX, mouseY);
 			} else if (hovered != null) {
-				this.tooltipLines = withClaim(Radar.describe(hovered, viewer), hovered.entity().getBlockX(), hovered.entity().getBlockZ());
+				this.tooltipLines = this.withClaimAt(Radar.describe(hovered, viewer), mouseX, mouseY);
 			} else if (this.pressButton == -1) {
 				this.tooltipLines = this.spotTooltip(mouseX, mouseY);
 			}
@@ -608,17 +608,17 @@ public final class MapScreen extends Screen {
 			}
 		}
 
-		this.drawClaimableRange(graphics, view, viewer);
+		this.drawClaimableRange(graphics, view);
 		if (this.claimSelecting) {
 			BlockPos from = this.roughSpot(this.pressX, this.pressY);
 			BlockPos to = this.roughSpot(this.claimEndX, this.claimEndY);
 			boolean tooFar = (from != null && OpacClaims.outsideClaimDistance(this.minecraft, from.getX() >> 4, from.getZ() >> 4))
 				|| (to != null && OpacClaims.outsideClaimDistance(this.minecraft, to.getX() >> 4, to.getZ() >> 4));
 			int color = tooFar ? 0x77FF3C3C : this.claimRemoving ? 0x55FF6666 : 0x5566DD88;
-			if(from!=null&&to!=null)this.drawClaimChunks(graphics,view,viewer,Math.min(from.getX()>>4,to.getX()>>4),Math.min(from.getZ()>>4,to.getZ()>>4),Math.max(from.getX()>>4,to.getX()>>4),Math.max(from.getZ()>>4,to.getZ()>>4),color);
+			if(from!=null&&to!=null)this.drawClaimChunks(graphics,view,Math.min(from.getX()>>4,to.getX()>>4),Math.min(from.getZ()>>4,to.getZ()>>4),Math.max(from.getX()>>4,to.getX()>>4),Math.max(from.getZ()>>4,to.getZ()>>4),color);
 		}else if(!this.draw.active()&&this.otherDimension==null&&DrawMode.shiftDown()&&OpacClaims.available(this.minecraft)&&mouseY>BAR&&mouseY<this.height-BOTTOM_BAR){
 			BlockPos at=this.roughSpot(mouseX,mouseY);
-			if(at!=null){int cx=at.getX()>>4,cz=at.getZ()>>4;this.drawClaimChunks(graphics,view,viewer,cx,cz,cx,cz,OpacClaims.outsideClaimDistance(this.minecraft,cx,cz)?0x77FF3C3C:0x5566DD88);}
+			if(at!=null){int cx=at.getX()>>4,cz=at.getZ()>>4;this.drawClaimChunks(graphics,view,cx,cz,cx,cz,OpacClaims.outsideClaimDistance(this.minecraft,cx,cz)?0x77FF3C3C:0x5566DD88);}
 		}
 
 		// The bars: tabs and status on top with the buttons, the mouse's ways in at the bottom.
@@ -1027,11 +1027,11 @@ public final class MapScreen extends Screen {
 	/**
 	 * Approximate claim-distance outline while holding Shift or dragging a claim area.
 	 * OPAC limits X and Z independently, giving a square around the player's chunk.
-	 * The map uses a fixed player Y, so the outline follows Diorama's map projection
+	 * The map uses the same fixed height as the claim rectangles, so the outline follows its projection
 	 * but does not account for varying terrain elevations.
 	 */
-	private void drawClaimChunks(GuiGraphicsExtractor graphics,MapViewport.View view,Entity viewer,int x0,int z0,int x1,int z1,int color){
-		double y=viewer.getY();
+	private void drawClaimChunks(GuiGraphicsExtractor graphics,MapViewport.View view,int x0,int z0,int x1,int z1,int color){
+		double y=ClaimProjection.height(this.layer);
 		float ax=view.screenX(Projection.u((double)x0*16,(double)z0*16)),bx=view.screenX(Projection.u(((double)x1+1)*16,((double)z1+1)*16));
 		float ay=view.screenY(Projection.v((double)x0*16,y,(double)z0*16)),by=view.screenY(Projection.v(((double)x1+1)*16,y,((double)z1+1)*16));
 		int l=Math.max(0,(int)Math.floor(Math.min(ax,bx))),r=Math.min(this.width,(int)Math.ceil(Math.max(ax,bx))),t=Math.max(BAR,(int)Math.floor(Math.min(ay,by))),b=Math.min(this.height-BOTTOM_BAR,(int)Math.ceil(Math.max(ay,by)));
@@ -1039,7 +1039,7 @@ public final class MapScreen extends Screen {
 		graphics.fill(l,t,r,b,color);graphics.fill(l,t,r,t+1,0xFFFFFFFF);graphics.fill(l,b-1,r,b,0xFFFFFFFF);graphics.fill(l,t,l+1,b,0xFFFFFFFF);graphics.fill(r-1,t,r,b,0xFFFFFFFF);
 	}
 
-	private void drawClaimableRange(GuiGraphicsExtractor graphics, MapViewport.View view, Entity viewer) {
+	private void drawClaimableRange(GuiGraphicsExtractor graphics, MapViewport.View view) {
 		if (!(this.claimSelecting || DrawMode.shiftDown()) || this.otherDimension != null) {
 			return;
 		}
@@ -1051,7 +1051,7 @@ public final class MapScreen extends Screen {
 		int cz = this.minecraft.player.chunkPosition().z();
 		long[] x = {(long) (cx - range) * 16, ((long) cx + range + 1) * 16};
 		long[] z = {(long) (cz - range) * 16, ((long) cz + range + 1) * 16};
-		double y = viewer.getY();
+		double y = ClaimProjection.height(this.layer);
 		float[] px = new float[4], py = new float[4];
 		for (int i = 0; i < 4; i++) {
 			double wx = x[i == 1 || i == 2 ? 1 : 0];
@@ -1076,35 +1076,20 @@ public final class MapScreen extends Screen {
 		graphics.disableScissor();
 	}
 
-	/**
-	 * Prefer real picked ground over the projection's estimated Y=64 when selecting claims on
-	 * Diorama's angled map. Both picks can finish asynchronously if the tiles are on disk.
-	 */
+	/** Claim exactly the flat chunk rectangles previewed by the drag highlight. */
 	private void claimSelection(double fromX, double fromY, double toX, double toY, boolean remove) {
-		BlockPos roughFrom = this.roughSpot(fromX, fromY);
-		BlockPos roughTo = this.roughSpot(toX, toY);
-		ClientLevel world = this.minecraft.level;
-		if (roughFrom == null || roughTo == null || world == null) {
+		BlockPos from = this.roughSpot(fromX, fromY);
+		BlockPos to = this.roughSpot(toX, toY);
+		if (from == null || to == null || this.minecraft.level == null) return;
+		int x0 = from.getX() >> 4, z0 = from.getZ() >> 4;
+		int x1 = to.getX() >> 4, z1 = to.getZ() >> 4;
+		long count = (Math.abs((long) x1 - x0) + 1) * (Math.abs((long) z1 - z0) + 1);
+		if (count > MAX_CLAIM_SELECTION_CHUNKS) {
+			this.showClaimFeedback(Component.literal("Selection is too large (maximum 4096 chunks)"), true, false);
 			return;
 		}
-		this.spotAt(fromX, fromY, false).thenCombine(this.spotAt(toX, toY, false), (from, to) ->
-			new BlockPos[] {from.pos() == null ? roughFrom : from.pos(), to.pos() == null ? roughTo : to.pos()})
-			.thenAcceptAsync(bounds -> {
-				if (this.minecraft.level != world || this.minecraft.gui.screen() != this) {
-					return;
-				}
-				int x0 = bounds[0].getX() >> 4, z0 = bounds[0].getZ() >> 4;
-				int x1 = bounds[1].getX() >> 4, z1 = bounds[1].getZ() >> 4;
-				long count = (Math.abs((long) x1 - x0) + 1) * (Math.abs((long) z1 - z0) + 1);
-				if (count > MAX_CLAIM_SELECTION_CHUNKS) {
-					this.showClaimFeedback(Component.literal("Selection is too large (maximum 4096 chunks)"), true, false);
-					return;
-				}
-				// OPAC displays the pending state and authoritative result inside this map.
-				// Its server enforces the distance boundary and may partially process an area.
-				OpacClaims.requestArea(this.minecraft, x0, z0, x1, z1,
-					remove ? OpacClaims.Action.UNCLAIM : OpacClaims.Action.CLAIM);
-			}, this.minecraft);
+		OpacClaims.requestArea(this.minecraft, x0, z0, x1, z1,
+			remove ? OpacClaims.Action.UNCLAIM : OpacClaims.Action.CLAIM);
 	}
 
 	/** Opens the menu for what's under a screen point: a waypoint's, or the spot's. */
@@ -1176,7 +1161,7 @@ public final class MapScreen extends Screen {
 	}
 
 	/** The height most ground is near, for a point the map knows nothing about. */
-	private static final int USUAL_GROUND_Y = 64;
+	private static final int USUAL_GROUND_Y = ClaimProjection.SURFACE_Y;
 
 	/**
 	 * Roughly where a screen point is when the map can't say. The camera is tilted, so a point alone
@@ -1187,10 +1172,9 @@ public final class MapScreen extends Screen {
 		if (view == null) {
 			return null;
 		}
-		int y = this.layer == TileKey.SURFACE ? USUAL_GROUND_Y : this.layer;
 		double u = view.centerU() + (screenX - view.x() - view.width() / 2.0) / view.zoom();
-		double v = TileSpots.rowMiddle(view.centerV() + (screenY - view.y() - view.height() / 2.0) / view.zoom());
-		return Projection.facing().worldPos(new BlockPos((int) Math.floor(u), y, (int) Math.floor(Projection.zAt(v, y))));
+		double v = view.centerV() + (screenY - view.y() - view.height() / 2.0) / view.zoom();
+		return ClaimProjection.spot(u, v, this.layer);
 	}
 
 	private List<MapMenu.Item> spotItems(MapLevel.Spot found, @Nullable BlockPos rough) {
@@ -1228,7 +1212,7 @@ public final class MapScreen extends Screen {
 			}));
 			items.add(MapMenu.Item.action(Component.translatable("diorama.menu.add_temporary"), true, () -> Waypoints.addTemporary(spot, dimension)));
 		}
-		this.addClaimItems(items, spot);
+		this.addClaimItems(items, rough);
 		items.add(this.copyItem(x + " " + y + " " + z));
 		// Chat can't take it back, so sharing asks twice.
 		items.add(MapMenu.Item.confirmed(Component.translatable("diorama.menu.share_location"), Component.translatable("diorama.menu.share_confirm"), () -> {
@@ -1251,7 +1235,7 @@ public final class MapScreen extends Screen {
 			items.add(MapMenu.Item.action(Component.literal("OPAC: Claim chunk"), true,
 				() -> OpacClaims.requestArea(this.minecraft, cx, cz, cx, cz, OpacClaims.Action.CLAIM)));
 		} else {
-			items.add(MapMenu.Item.info(Component.literal("OPAC: " + claim.name())));
+			items.add(MapMenu.Item.info(Component.literal("OPAC: " + claim.name()).append(Component.translatable("diorama.map.claim.chunk", cx, cz))));
 			items.add(MapMenu.Item.action(Component.literal("OPAC: Unclaim chunk"), true,
 				() -> OpacClaims.requestArea(this.minecraft, cx, cz, cx, cz, OpacClaims.Action.UNCLAIM)));
 			items.add(MapMenu.Item.action(Component.literal(claim.forceLoaded() ? "OPAC: Unforce-load chunk" : "OPAC: Force-load chunk"), true,
@@ -1829,7 +1813,8 @@ public final class MapScreen extends Screen {
 		}
 		BlockPos spot = this.spot;
 		if (spot == null) {
-			return null;
+			List<FormattedCharSequence> claim = this.withClaimAt(List.of(), mouseX, mouseY);
+			return claim.isEmpty() ? null : claim;
 		}
 		if (this.otherDimension != null) {
 			return List.of(Component.translatable("diorama.map.spot", spot.getX(), spot.getY(), spot.getZ()).getVisualOrderText());
@@ -1839,24 +1824,23 @@ public final class MapScreen extends Screen {
 		Component detail = biome != null
 			? Component.translatable("diorama.map.spot_detail", biome, distance)
 			: Component.translatable("diorama.map.distance", distance);
-		return withClaim(lines(Component.translatable("diorama.map.spot", spot.getX(), spot.getY(), spot.getZ()), detail), spot.getX(), spot.getZ());
+		return this.withClaimAt(lines(Component.translatable("diorama.map.spot", spot.getX(), spot.getY(), spot.getZ()), detail), mouseX, mouseY);
 	}
 
-	/**
-	 * A mob's, player's or waypoint's tooltip, with the claim it stands in on a line underneath, as
-	 * an empty spot's tooltip has: the claim would be unreadable wherever something stands on it.
-	 */
-	private static List<FormattedCharSequence> withClaim(Component described, int x, int z) {
-		return withClaim(List.of(described.getVisualOrderText()), x, z);
+	/** Add the claim rectangle under the cursor, including when terrain height is unavailable. */
+	private List<FormattedCharSequence> withClaimAt(Component described, int mouseX, int mouseY) {
+		return this.withClaimAt(List.of(described.getVisualOrderText()), mouseX, mouseY);
 	}
 
-	private static List<FormattedCharSequence> withClaim(List<FormattedCharSequence> lines, int x, int z) {
-		Claims.Claim claim = Settings.get().claims == Settings.ClaimsShown.OFF ? null : Claims.get().at(x >> 4, z >> 4);
-		if (claim == null) {
-			return lines;
-		}
+	private List<FormattedCharSequence> withClaimAt(List<FormattedCharSequence> lines, int mouseX, int mouseY) {
+		if (this.otherDimension != null || Settings.get().claims == Settings.ClaimsShown.OFF) return lines;
+		BlockPos at = this.roughSpot(mouseX, mouseY);
+		if (at == null) return lines;
+		int cx = at.getX() >> 4, cz = at.getZ() >> 4;
+		Claims.Claim claim = Claims.get().at(cx, cz);
+		if (claim == null) return lines;
 		List<FormattedCharSequence> both = new ArrayList<>(lines);
-		both.add(claimLine(claim).getVisualOrderText());
+		both.add(claimLine(claim).copy().append(Component.translatable("diorama.map.claim.chunk", cx, cz)).getVisualOrderText());
 		return both;
 	}
 
