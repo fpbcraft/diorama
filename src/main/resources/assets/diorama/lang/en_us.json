@@ -252,6 +252,7 @@
 	"diorama.map.spot_detail": "%s · %s m",
 	"diorama.map.claim": "Claimed by %s",
 	"diorama.map.claim.unnamed": "a team",
+	"diorama.map.claim.chunk": " · chunk %s, %s",
 	"diorama.map.claim.force_loaded": " · force loaded",
 	"diorama.map.distance": "%s m",
 	"diorama.map.you": "You",

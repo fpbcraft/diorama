@@ -30,12 +30,6 @@ public final class MapTile {
 	private @Nullable MapTexture claims;
 	/** The claims {@link #claims} shows, or null before they're first painted. */
 	Claims.@Nullable Snapshot claimsPainted;
-	/** Goes up whenever the tile's pixels change, as the ground the claims are painted on may move. */
-	int pixelsRevision;
-	/** When {@link #pixelsRevision} last went up. */
-	long pixelsChanged;
-	/** The {@link #pixelsRevision} {@link #claims} was painted for. */
-	int claimsRevision;
 	/** The ground under the tile's pixels, for lights and crafts; see {@link MapLevel#surface}. */
 	@Nullable TileSurface surface;
 	@Nullable CompletableFuture<@Nullable TileSurface> surfacePending;
@@ -241,10 +235,9 @@ public final class MapTile {
 		return 0;
 	}
 
-	/** Shows freshly painted claims, or none: {@code painted} drawn on the pixels of {@code revision}. */
-	void paintClaims(int @Nullable [] pixels, Claims.Snapshot painted, int revision) {
+	/** Shows freshly painted flat claims, or none. */
+	void paintClaims(int @Nullable [] pixels, Claims.Snapshot painted) {
 		this.claimsPainted = painted;
-		this.claimsRevision = revision;
 		if (pixels == null) {
 			if (this.claims != null) {
 				this.claims.close();

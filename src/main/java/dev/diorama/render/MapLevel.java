@@ -1,5 +1,6 @@
 package dev.diorama.render;
 
+import dev.diorama.ClaimProjection;
 import dev.diorama.Claims;
 import dev.diorama.Diorama;
 import dev.diorama.Facing;
@@ -203,14 +204,12 @@ public final class MapLevel implements ChunkSource {
 	private final Set<TileKey> claimsInFlight = new HashSet<>();
 	private final ConcurrentLinkedQueue<PaintedClaims> paintedClaims = new ConcurrentLinkedQueue<>();
 
-	/** Claims painted for a tile, on its pixels as they were at {@code revision}. */
-	private record PaintedClaims(TileKey key, MapTile tile, Claims.Snapshot claims, int revision, int @Nullable [] pixels) {
+	/** Flat claims painted for one tile. */
+	private record PaintedClaims(TileKey key, MapTile tile, Claims.Snapshot claims, int @Nullable [] pixels) {
 	}
 
 	/** At most this many tiles' claims are painted at once, beside the bakes. */
 	private static final int CLAIM_PAINTS = 2;
-	/** A tile whose pixels changed has its claims painted again at most this often. */
-	private static final long CLAIM_REPAINT_MS = 2000;
 
 	/** See {@link ChunkSource#roof()}. */
 	private final int roof;
@@ -942,7 +941,7 @@ public final class MapLevel implements ChunkSource {
 			this.claimsInFlight.remove(painted.key());
 			// Not for a tile evicted meanwhile, nor one put in its place.
 			if (this.tiles.get(painted.key()) == painted.tile() && !this.closed) {
-				painted.tile().paintClaims(painted.pixels(), painted.claims(), painted.revision());
+				painted.tile().paintClaims(painted.pixels(), painted.claims());
 			}
 		}
 		if (this.trimStuck && System.currentTimeMillis() - this.lastTrimMs >= TRIM_RETRY_MS) {
@@ -1053,7 +1052,6 @@ public final class MapLevel implements ChunkSource {
 			// Baked only to be saved; a map that wants it will bake it again.
 			if (this.store != null) {
 				this.store.baked(image);
-				this.pixelsMoved(image.key());
 			}
 			return;
 		}
@@ -1071,7 +1069,6 @@ public final class MapLevel implements ChunkSource {
 			this.tiles.put(image.key(), tile);
 		}
 		tile.upload(image);
-		this.pixelsMoved(image.key());
 		this.coverageVersion++;
 		if (this.store != null && !this.savedOnly && !image.key().isCave() && image.key().lod() == 0) {
 			this.store.baked(image);
@@ -1103,7 +1100,6 @@ public final class MapLevel implements ChunkSource {
 				this.dirty.computeIfAbsent(key, k -> new Dirty(0)).blocks.set(0, blocks);
 			}
 		}
-		this.pixelsMoved(key);
 		store.baked(image);
 		return true;
 	}
@@ -1356,82 +1352,41 @@ public final class MapLevel implements ChunkSource {
 		return (pixels[y * size + x] >>> 24) != 0;
 	}
 
-	/**
-	 * The land claims to draw over a tile, or null for none. Asks for them to be painted, off the
-	 * render thread, when the claims under the tile changed or the tile did; the old ones show
-	 * meanwhile. Only the saved sky view knows which chunk each pixel shows.
-	 */
+	/** Flat claim tiles repaint only when their claim data changes, regardless of terrain bakes. */
 	public @Nullable MapTexture claims(TileKey key, MapTile tile) {
-		TileStore store = this.store;
-		if (store == null || key.isCave()) {
-			return null;
-		}
+		if (key.isCave()) return null;
 		Claims.Snapshot claims = Claims.get();
 		Claims.Snapshot painted = tile.claimsPainted;
-		boolean moved = tile.claimsRevision != tile.pixelsRevision;
-		if (painted == claims && !moved) {
-			return tile.claims();
-		}
-		// The chunks the tile could show, and the columns past its sides that its edges look at:
-		// its columns, and the rows' ground anywhere from the bottom of the world to the top.
-		int tx0 = Math.floorDiv((int) Math.floor(key.minU()), 16) - 1;
-		int tx1 = Math.floorDiv((int) Math.ceil(key.minU() + key.units()), 16) + 1;
-		int tz0 = Math.floorDiv((int) Math.floor(Projection.zAt(key.minV(), this.minY)), 16);
-		int tz1 = Math.floorDiv((int) Math.ceil(Projection.zAt(key.minV() + key.units(), this.maxY)), 16);
+		if (painted == claims) return tile.claims();
+		double padding = 2 * key.units() / Projection.TILE_PIXELS;
+		int tx0 = Math.floorDiv((int) Math.floor(key.minU() - padding), 16);
+		int tx1 = Math.floorDiv((int) Math.floor(key.minU() + key.units() + padding), 16);
+		int tz0 = Math.floorDiv((int) Math.floor(Projection.zAt(key.minV() - padding, ClaimProjection.SURFACE_Y)), 16);
+		int tz1 = Math.floorDiv((int) Math.floor(Projection.zAt(key.minV() + key.units() + padding, ClaimProjection.SURFACE_Y)), 16);
 		Facing facing = Projection.facing();
 		int cx0 = Math.min(facing.worldBlockX(tx0, tz0), facing.worldBlockX(tx1, tz1));
 		int cx1 = Math.max(facing.worldBlockX(tx0, tz0), facing.worldBlockX(tx1, tz1));
 		int cz0 = Math.min(facing.worldBlockZ(tx0, tz0), facing.worldBlockZ(tx1, tz1));
 		int cz1 = Math.max(facing.worldBlockZ(tx0, tz0), facing.worldBlockZ(tx1, tz1));
-		boolean near = claims.mayHaveAny(cx0, cz0, cx1, cz1);
-		boolean changed = painted == null ? near : claims.differsIn(painted, cx0, cz0, cx1, cz1);
-		if (!changed && !(moved && near)) {
-			// Nothing claimed under this tile changed, and its pixels didn't, or nothing is claimed near it.
-			if (painted == null) {
-				tile.paintClaims(null, claims, tile.pixelsRevision);
-			} else {
-				tile.claimsPainted = claims;
-				if (!near) {
-					tile.claimsRevision = tile.pixelsRevision;
-				}
-			}
+		boolean changed = painted == null ? claims.mayHaveAny(cx0, cz0, cx1, cz1)
+			: claims.differsIn(painted, cx0, cz0, cx1, cz1);
+		if (!changed) {
+			tile.claimsPainted = claims;
 			return tile.claims();
 		}
-		// New claims at once; moved pixels after a pause, as a tile in view can change every few ticks.
-		boolean due = changed || System.currentTimeMillis() - tile.pixelsChanged > CLAIM_REPAINT_MS;
-		if (due && !this.claimsInFlight.contains(key) && this.claimsInFlight.size() < CLAIM_PAINTS) {
+		if (!this.claimsInFlight.contains(key) && this.claimsInFlight.size() < CLAIM_PAINTS) {
 			this.claimsInFlight.add(key);
-			int revision = tile.pixelsRevision;
 			BAKERS.execute(() -> {
 				int[] pixels = null;
 				try {
-					pixels = this.paintClaims(store, key, claims);
+					pixels = ClaimPaint.paint(key, claims);
 				} catch (Throwable t) {
 					Diorama.LOGGER.error("Failed to paint the claims on tile {}", key, t);
 				}
-				this.paintedClaims.add(new PaintedClaims(key, tile, claims, revision, pixels));
+				this.paintedClaims.add(new PaintedClaims(key, tile, claims, pixels));
 			});
 		}
 		return tile.claims();
-	}
-
-	/**
-	 * A tile's pixels changed, so may the ground its claims are painted on, and the edge rows the
-	 * tiles above and below it paint their own edges against.
-	 */
-	private void pixelsMoved(TileKey key) {
-		long now = System.currentTimeMillis();
-		for (int dv = -1; dv <= 1; dv++) {
-			MapTile tile = this.tiles.get(new TileKey(key.layer(), key.tileU(), key.tileV() + dv, key.lod()));
-			if (tile != null) {
-				// The repaint waits from the first change it hasn't painted, so a tile changing all
-				// the time still gets one.
-				if (tile.claimsRevision == tile.pixelsRevision) {
-					tile.pixelsChanged = now;
-				}
-				tile.pixelsRevision++;
-			}
-		}
 	}
 
 	/**
@@ -1468,21 +1423,9 @@ public final class MapLevel implements ChunkSource {
 		return store != null && store.spots(key) != null;
 	}
 
-	/** For tests: the claims a tile shows by the current claims, painted on this thread; null for none. */
+	/** For tests: current flat claim pixels; no saved terrain picking data is needed. */
 	public int @Nullable [] claimPixels(TileKey key) {
-		TileStore store = this.store;
-		return store == null ? null : this.paintClaims(store, key, Claims.get());
-	}
-
-	/** A tile's claims, with its edge rows told apart from the tiles above and below it. Not on the render thread. */
-	private int @Nullable [] paintClaims(TileStore store, TileKey key, Claims.Snapshot claims) {
-		byte[] chunks = store.chunks(key);
-		if (chunks == null) {
-			return null;
-		}
-		TileKey north = new TileKey(key.layer(), key.tileU(), key.tileV() - 1, key.lod());
-		TileKey south = new TileKey(key.layer(), key.tileU(), key.tileV() + 1, key.lod());
-		return ClaimPaint.paint(key, chunks, store.chunks(north), store.chunks(south), claims);
+		return key.isCave() ? null : ClaimPaint.paint(key, Claims.get());
 	}
 
 	private void loadSaved(TileKey key, TileStore store) {
