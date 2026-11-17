@@ -28,6 +28,8 @@ All in `config/diorama-server.properties`:
 | `web-map` | `true` to draw the web map. Off by default. |
 | `web-map-update-seconds` | Delay before copying a changed, already loaded chunk. Default 30, range 10–300 seconds. Restart to change. |
 | `web-map-depth` | Optional compressed camera-depth sidecars for 3D vehicle occlusion. Default false. Restart and force-render existing terrain after enabling. Adds a second background geometry pass and disk use. |
+| `web-map-vehicle-history` | Record Create/Sable vehicle history through Player History (default true). Set false to stop new vehicle recordings while keeping live vehicles, player history and existing recordings. Apply with `/diorama reload`. Requires the matching Player History public-assets update. |
+| `web-map-vehicle-history-interval-ms` | Vehicle history sampling interval, separate from live animation. Default 500 ms; range 100–60,000 ms. This does not throttle the live vehicle feed. |
 | `web-map-port` | The port of Diorama's own small web server. `0` turns it off, for when you serve the files yourself. Default 8100. |
 | `web-map-address` | The address it listens on. Empty for every address; `127.0.0.1` to only reach it through a web server of your own on the same machine. |
 | `web-map-folder` | Where the map's files go. Empty: `diorama-web` in the world folder. |
@@ -92,6 +94,12 @@ Use `diorama-web status` to capture the current stage, then look for `Web map` i
 Diorama scans saved world regions in batches of eight, queues affected tiles durably, and draws/publishes JPEGs **while discovery is still underway**. An initial large-region scan no longer blocks the first tile. A low-priority background worker handles all scan/render work without world generation or region IO on the Minecraft server command thread.
 
 On restart, the worker restores pending tile IDs from each dimension's **pending-tiles.txt** and its durable region-scan cursor from **progress.properties**. Queue data is saved before a scan checkpoint advances, so a crash can cause repeated work but should not lose queued tiles. If the region-file set changes (validated using a stable fingerprint of region coordinates), the scanner restarts conservatively while retaining generated JPEGs.
+
+### Reloading server config
+
+After editing `config/diorama-server.properties`, run `/diorama reload` (alias `/diorama-web reload`, operator level 2). The command waits for the old terrain, vehicle, waypoint and queue writers on a background lifecycle thread, then restarts Diorama's web and sharing services with the new settings. It also reloads the web appearance profile. Minecraft ticks continue during the wait; the map HTTP endpoint is briefly unavailable. A tile already rendering may delay completion. Duplicate reload requests are rejected, and a server shutdown cancels the restart.
+
+The reload preserves the paused state, existing terrain files, history files and saved scan checkpoints. Connected Diorama clients receive the reloaded sharing rules and locks, including removal of old locks. A changed land policy or appearance can trigger the normal terrain refresh. Turning history off marks currently tracked vehicles offline once; turning it back on starts a fresh replay segment so playback does not interpolate across the disabled period. Changing the vehicle-history interval takes effect without changing live animation. This command reloads Diorama's server config, not Player History's separate TOML config.
 
 ### Commands
 

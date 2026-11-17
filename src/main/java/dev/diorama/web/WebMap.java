@@ -93,6 +93,10 @@ public final class WebMap {
 	private static final java.util.regex.Pattern TILE_NAME = java.util.regex.Pattern.compile("-?[0-9]+_-?[0-9]+[.](jpg|png|fog[.]png|depth|ground)");
 
 	private static @Nullable WebMap running;
+	private static Path configDirectory;
+	private static Path modsDirectory;
+	private static final AtomicBoolean reloading = new AtomicBoolean();
+	private static volatile boolean stoppingServer;
 
 	private final MinecraftServer server;
 	private final WebSettings settings;
@@ -145,10 +149,14 @@ public final class WebMap {
 
 	/** Starts the web map if the settings turn it on. Server thread, once the server has started. */
 	public static synchronized void started(MinecraftServer server, Path configFolder, Path modsFolder) {
+		configDirectory = configFolder;
+		modsDirectory = modsFolder;
+		stoppingServer = false;
 		if (!server.isDedicatedServer()) {
 			return;
 		}
 		WebSettings settings = WebSettings.load(configFolder);
+		dev.diorama.api.WebVehicleScene.configureHistory(settings.enabled() && settings.vehicles() && settings.vehicleHistory(), settings.vehicleHistoryIntervalMs());
 		if (!settings.enabled()) {
 			Diorama.LOGGER.info("Diorama's web map is off (web-map in config/{})", WebSettings.FILE);
 			return;
@@ -169,8 +177,74 @@ public final class WebMap {
 		}
 	}
 
+	/** Retire all writers before reopening their files; never wait for rendering on the server thread. */
+	public static boolean reload(MinecraftServer server, java.util.function.Consumer<String> feedback) throws IOException {
+		if (!server.isDedicatedServer() || configDirectory == null) {
+			feedback.accept("Diorama server config reload is only available on a dedicated server.");
+			return false;
+		}
+		// A malformed or unreadable file must not replace a working configuration with defaults.
+		try (var reader = Files.newBufferedReader(configDirectory.resolve(WebSettings.FILE), java.nio.charset.StandardCharsets.UTF_8)) {
+			new Properties().load(reader);
+		}
+		WebSettings settings = WebSettings.load(configDirectory);
+		if (stoppingServer || !reloading.compareAndSet(false, true)) {
+			feedback.accept("Diorama config reload is already in progress.");
+			return false;
+		}
+		Path config = configDirectory, mods = modsDirectory;
+		WebMap previous = running;
+		boolean wasPaused = previous != null && previous.paused;
+		dev.diorama.api.WebVehicleScene.configureHistory(settings.enabled() && settings.vehicles() && settings.vehicleHistory(), settings.vehicleHistoryIntervalMs());
+		Thread reload = new Thread(() -> {
+			try {
+				stopRunning();
+				if (previous != null) {
+					previous.thread.join();
+					if (previous.vehicles != null) previous.vehicles.awaitStopped();
+					previous.waypoints.awaitStopped();
+					if (previous.queueStatus != null) previous.queueStatus.awaitStopped();
+				}
+				server.execute(() -> {
+					try {
+						if (stoppingServer) return;
+						ShareServer.reload(server, config);
+						started(server, config, mods);
+						WebMap current = running;
+						if (wasPaused && current != null) current.pause();
+						String result = settings.enabled() && current == null
+							? "Diorama config read, but the web map could not restart; see the server log."
+							: "Reloaded diorama-server.properties; vehicle history " + (settings.vehicleHistory() ? "enabled" : "disabled")
+								+ ", interval " + settings.vehicleHistoryIntervalMs() + " ms. Existing terrain and history kept.";
+						Diorama.LOGGER.info(result);
+						feedback.accept(result);
+					} catch (RuntimeException error) {
+						Diorama.LOGGER.error("Diorama config reload failed", error);
+						feedback.accept("Diorama config reload failed; see the server log.");
+					} finally { reloading.set(false); }
+				});
+			} catch (InterruptedException error) {
+				Thread.currentThread().interrupt();
+				reloading.set(false);
+				Diorama.LOGGER.warn("Diorama config reload was interrupted", error);
+			} catch (RuntimeException error) {
+				reloading.set(false);
+				Diorama.LOGGER.error("Diorama config reload failed while stopping background writers", error);
+				server.execute(() -> feedback.accept("Diorama config reload failed; see the server log."));
+			}
+		}, "Diorama config reload");
+		reload.setDaemon(true);
+		reload.start();
+		return true;
+	}
+
 	/** Stops the web map, if it runs. Server thread. */
 	public static synchronized void stopped() {
+		stoppingServer = true;
+		stopRunning();
+	}
+
+	private static synchronized void stopRunning() {
 		WebMap map = running;
 		running = null;
 		if (map != null) {
@@ -446,6 +520,15 @@ public final class WebMap {
 
 	private void run() {
 		try {
+			if (!this.settings.vehicles()) {
+				try {
+					Path feed = this.folder.resolve("assets/diorama-vehicles/scene.json");
+					Files.createDirectories(feed.getParent());
+					dev.diorama.web.vehicles.VehicleSprites.atomic(feed,
+						("{\"generatedAt\":" + System.currentTimeMillis() + ",\"intervalMs\":100,\"format\":\"diorama-craft-sprites-v1\",\"objects\":[]}")
+							.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+				} catch (IOException error) { Diorama.LOGGER.warn("Couldn't clear the disabled vehicle feed", error); }
+			}
 			Properties progress = this.loadProgress();
 			// Before anything is served: what the settings keep off the map is deleted, and the map
 			// file lists what's left as it is on disk.

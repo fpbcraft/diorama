@@ -98,4 +98,7 @@ final class WebWaypoints implements AutoCloseable {
 		Path part=file.resolveSibling(file.getFileName()+".part");Files.writeString(part,text);Files.move(part,file,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
 	}
 	@Override public void close(){closed=true;writer.shutdown();}
+	public void awaitStopped() throws InterruptedException {
+		while (!writer.awaitTermination(1, java.util.concurrent.TimeUnit.SECONDS)) { /* Lifecycle worker waits off the server thread. */ }
+	}
 }

@@ -41,12 +41,28 @@ public final class WebMapCommand {
 		root.then(Commands.literal("stop").executes(c -> control(c, "stop")));
 		root.then(Commands.literal("pause").executes(c -> control(c, "stop")));
 		root.then(Commands.literal("cancel").executes(c -> control(c, "cancel")));
+		root.then(Commands.literal("reload").executes(WebMapCommand::reload));
 
 		render(root, "render", false);
 		render(root, "update", false);
 		render(root, "force-render", true);
 		render(root, "force-update", true);
 		dispatcher.register(root);
+		dispatcher.register(Commands.literal("diorama").requires(root.getRequirement())
+			.then(Commands.literal("reload").executes(WebMapCommand::reload)));
+	}
+
+	private static int reload(CommandContext<CommandSourceStack> context) {
+		var source = context.getSource();
+		try {
+			boolean queued = WebMap.reload(source.getServer(), message ->
+				source.sendSuccess(() -> Component.literal(message), false));
+			if (queued) source.sendSuccess(() -> Component.literal("Reloading Diorama config after background writers stop; use /diorama-web status."), false);
+			return queued ? 1 : 0;
+		} catch (java.io.IOException | IllegalArgumentException error) {
+			source.sendFailure(Component.literal("Could not reload Diorama config: " + error.getMessage()));
+			return 0;
+		}
 	}
 
 	private static void render(
