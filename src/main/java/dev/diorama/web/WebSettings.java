@@ -19,10 +19,10 @@ import org.jspecify.annotations.Nullable;
  * @param folder where the tiles go; null for {@code diorama-web} in the world folder
  * @param everyChunk whether every finished chunk is drawn, rather than only land players spent time near
  */
-public record WebSettings(boolean enabled, int port, String address, @Nullable Path folder, boolean everyChunk, int updateSeconds, boolean depth, boolean vehicles) {
+public record WebSettings(boolean enabled, int port, String address, @Nullable Path folder, boolean everyChunk, int updateSeconds, boolean depth, boolean vehicles, boolean vehicleHistory, int vehicleHistoryIntervalMs) {
 	public static final String FILE = "diorama-server.properties";
 	public static final int DEFAULT_PORT = 8100;
-	public static final WebSettings DEFAULTS = new WebSettings(false, DEFAULT_PORT, "", null, false, 30, false, true);
+	public static final WebSettings DEFAULTS = new WebSettings(false, DEFAULT_PORT, "", null, false, 30, false, true, true, 500);
 
 	/** Reads the settings from {@code configFolder}, adding the web map's to the file if it lacks them. */
 	public static WebSettings load(Path configFolder) {
@@ -77,13 +77,21 @@ public record WebSettings(boolean enabled, int port, String address, @Nullable P
 		int updateSeconds = 30;
 		try { updateSeconds = Math.max(10, Math.min(300, Integer.parseInt(properties.getProperty("web-map-update-seconds", "30").trim()))); }
 		catch (NumberFormatException ignored) { Diorama.LOGGER.warn("Invalid web-map-update-seconds; using 30"); }
-		return new WebSettings(enabled, port, address, folder, everyChunk, updateSeconds, Boolean.parseBoolean(properties.getProperty("web-map-depth", "false")), Boolean.parseBoolean(properties.getProperty("web-map-vehicles", "true")));
+		int historyInterval = 500;
+		try { historyInterval = Math.max(100, Math.min(60000, Integer.parseInt(properties.getProperty("web-map-vehicle-history-interval-ms", "500").trim()))); }
+		catch (NumberFormatException ignored) { Diorama.LOGGER.warn("Invalid web-map-vehicle-history-interval-ms; using 500"); }
+		return new WebSettings(enabled, port, address, folder, everyChunk, updateSeconds,
+			Boolean.parseBoolean(properties.getProperty("web-map-depth", "false").trim()),
+			Boolean.parseBoolean(properties.getProperty("web-map-vehicles", "true").trim()),
+			Boolean.parseBoolean(properties.getProperty("web-map-vehicle-history", "true").trim()), historyInterval);
 	}
 
 	/** Each of the web map's settings: its key, what it means, its default. */
 	private static final String[][] SETTINGS = {
 		{"web-map-land", "# Land rendered for the browser: generated, visited, or inherit (share-land). Does not change in-game map sharing.\n", "inherit"},
 		{"web-map-vehicles", "# Publish Create/Sable crafts using Diorama rendering, without BlueMap.\n", "true"},
+		{"web-map-vehicle-history", "# Record vehicle history through Player History. false keeps live vehicles and existing recordings. Reload with /diorama-web reload.\n", "true"},
+		{"web-map-vehicle-history-interval-ms", "# History sampling interval, independent of live vehicle animation (100-60000 ms).\n", "500"},
 		{"web-map-depth", "# Export per-pixel depth for hybrid 3D vehicles; adds a surface trace per changed tile.\n", "false"},
 		{"web-map-update-seconds", "# Coalesce live block edits before background tile updates; saves/MSPT safeguards still apply.\n", "30"},
 		{"web-map", """

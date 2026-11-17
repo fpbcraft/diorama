@@ -219,4 +219,10 @@ public final class WebVehicles implements AutoCloseable {
 	@Override public void close() {
 		closed = true; worker.interrupt(); Thread poses=publisher; if(poses!=null)poses.interrupt(); WebVehicleScene.clear();
 	}
+	/** Only a background lifecycle thread may wait for the old writers. */
+	public void awaitStopped() throws InterruptedException {
+		worker.join();
+		Thread poses = publisher;
+		if (poses != null) poses.join();
+	}
 }

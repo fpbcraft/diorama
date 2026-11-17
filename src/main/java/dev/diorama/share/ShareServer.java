@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -56,6 +57,7 @@ public final class ShareServer {
 	private static volatile @Nullable ShareServer running;
 	/** The settings the running server locks, dedicated or not; null if it locks none. */
 	private static volatile @Nullable Locked locked;
+	private static final Set<UUID> listeners = ConcurrentHashMap.newKeySet();
 
 	private record Locked(MinecraftServer server, ServerLocks locks) {
 	}
@@ -119,6 +121,7 @@ public final class ShareServer {
 	}
 
 	public static void stopped(MinecraftServer server) {
+		listeners.clear();
 		Locked locks = locked;
 		if (locks != null && locks.server == server) {
 			locked = null;
@@ -137,6 +140,7 @@ public final class ShareServer {
 	 * tells their Diorama this server has Diorama.
 	 */
 	public static void listening(ServerPlayer player) {
+		listeners.add(player.getUUID());
 		Locked locks = locked;
 		if (locks != null && player.level().getServer() == locks.server) {
 			ShareProtocol.send(player, locks.locks.encode());
@@ -146,6 +150,22 @@ public final class ShareServer {
 			return;
 		}
 		ShareProtocol.send(player, share.settings.encode());
+	}
+
+	/** Server thread: re-read sharing policy and resend rules, including removal of old locks. */
+	public static void reload(MinecraftServer server, Path configFolder) {
+		List<ServerPlayer> connected = new ArrayList<>();
+		for (UUID id : listeners) {
+			ServerPlayer player = server.getPlayerList().getPlayer(id);
+			if (player != null && !player.hasDisconnected()) connected.add(player);
+		}
+		stopped(server);
+		started(server, configFolder);
+		for (ServerPlayer player : connected) {
+			if (player.hasDisconnected()) continue;
+			ShareProtocol.send(player, locks(server).encode());
+			listening(player);
+		}
 	}
 
 	/** A message from a player's Diorama. Server thread. */

@@ -41,4 +41,5 @@ final class WebQueueStatus implements AutoCloseable {
     Files.move(part,folder.resolve("queue-status.json"),StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);previous=value;written=now;
   }
   @Override public void close(){closed=true;thread.interrupt();}
+  public void awaitStopped() throws InterruptedException { thread.join(); }
 }
