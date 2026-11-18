@@ -2,6 +2,7 @@ package dev.diorama.web;
 
 import dev.diorama.Projection;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -73,15 +74,12 @@ final class WebTiles {
 	private static @Nullable BufferedImage image(int[] abgr) {
 		BufferedImage image = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_RGB);
 		boolean any = false;
-		int[] row = new int[SIZE];
-		for (int y = 0; y < SIZE; y++) {
-			for (int x = 0; x < SIZE; x++) {
-				int p = abgr[y * SIZE + x];
-				int a = p >>> 24;
-				any |= a != 0;
-				row[x] = over(p & 0xFF, p >> 8 & 0xFF, p >> 16 & 0xFF, a);
-			}
-			image.setRGB(0, y, SIZE, 1, row, 0, SIZE);
+		int[] rgb = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+		for (int i = 0; i < rgb.length; i++) {
+			int pixel = abgr[i];
+			int alpha = pixel >>> 24;
+			any |= alpha != 0;
+			rgb[i] = over(pixel & 0xFF, pixel >> 8 & 0xFF, pixel >> 16 & 0xFF, alpha);
 		}
 		return any ? image : null;
 	}

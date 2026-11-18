@@ -13,12 +13,16 @@ final class WebQueueStatus implements AutoCloseable {
   private final Path folder;
   private final Supplier<Map<String,Frame>> frames;
   private final BooleanSupplier paused;
+  private final Supplier<String> progress;
   private final Thread thread;
   private volatile boolean closed;
   private String previous;
   private long written;
   WebQueueStatus(Path folder,Supplier<Map<String,Frame>> frames,BooleanSupplier paused) {
-    this.folder=folder;this.frames=frames;this.paused=paused;
+    this(folder, frames, paused, () -> "");
+  }
+  WebQueueStatus(Path folder, Supplier<Map<String,Frame>> frames, BooleanSupplier paused, Supplier<String> progress) {
+    this.folder=folder;this.frames=frames;this.paused=paused;this.progress=progress;
     thread=new Thread(this::run,"Diorama queue status");thread.setDaemon(true);thread.setPriority(Thread.MIN_PRIORITY);thread.start();
   }
   private void run(){
@@ -27,7 +31,8 @@ final class WebQueueStatus implements AutoCloseable {
     catch(IOException|RuntimeException error){Diorama.LOGGER.warn("Couldn't publish queued web-map tiles",error);try{Thread.sleep(5000);}catch(InterruptedException done){return;}}
   }
   private void publish() throws IOException {
-    StringBuilder body=new StringBuilder("\"paused\":").append(paused.getAsBoolean()).append(",\"dimensions\":{");boolean first=true;
+    String summary = progress.get().replace("\\", "\\\\").replace("\"", "\\\"");
+    StringBuilder body=new StringBuilder("\"paused\":").append(paused.getAsBoolean()).append(",\"progress\":\"").append(summary).append("\",\"dimensions\":{");boolean first=true;
     for(var entry:new TreeMap<>(frames.get()).entrySet()){
       if(!first)body.append(',');first=false;
       String id=entry.getKey().replace("\\","\\\\").replace("\"","\\\"");Frame frame=entry.getValue();

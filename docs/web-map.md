@@ -87,7 +87,7 @@ The server log adds:
 - Explicit interruption cause (server shutdown or another redraw), completed count and retry schedule.
 - Detection of stale progress records when no base JPEG tiles exist; one full rescan is triggered automatically.
 
-Use `diorama-web status` to capture the current stage, then look for `Web map` in `logs/latest.log` to find timing, cause, and progress. **Do not repeatedly run `diorama-web redraw` while the first pass is building**: every invocation interrupts the current pass. This worker uses the saved region files and writes into `<world>/diorama-web/`; no manual deletion of `progress.properties` or the JPEG folders is required.
+Use `diorama-web status` to capture the current stage, then look for `Web map` in `logs/latest.log` to find timing, cause, and progress. Each manual render command adds a job. Use `/diorama-web tasks` to see pending requests before adding another. This worker uses the saved region files and writes into `<world>/diorama-web/`; no manual deletion of `progress.properties` or the JPEG folders is required.
 
 ## Progressive rendering and BlueMap-style commands (FPBCRAFT)
 
@@ -117,10 +117,18 @@ All commands use the **/diorama-web** prefix and require operator permission lev
 | force-render dimension minecraft:the_nether at 100 -60 512 | Force that dimension and area |
 | update / force-update | Aliases for render / force-render, matching BlueMap naming |
 | redraw | Legacy alias for force-render full |
+| tasks | List operator jobs by ID, with current progress and recent outcomes |
+| tasks cancel 3 | Cancel just job #3, including an active job. A render already in progress may finish its current tile. |
 | status | Current stage, queue length, average MSPT, saving/paused state |
 | pause / stop | Pause scanning and rendering without dropping pending tasks |
 | resume / start | Resume previously paused tasks |
 | cancel | Cancel the active scan and queued tasks, pause, and keep completed JPEGs |
+
+Normal rendering compares saved terrain fingerprints by region. A changed region list may restart discovery without forgetting which chunks were already inspected. Existing tiles without a fingerprint use their publication time during the first inspection. Appearance and land scope changes keep a separate refresh checkpoint.
+
+The status command and the browser queue overlay report scan progress in regions, then render progress in tiles once discovery finishes. The scan ETA estimates the end of discovery only. Operator jobs show a tile percentage and ETA in `tasks` after planning their scope. Estimates start once a batch finishes and depend on measured throughput and server load.
+
+Operator jobs run in submission order. The worker saves queued requests and checkpoints the active plan after published batches. A restart restores the remaining tiles, and a change to the map projection or land policy replans the active request. `tasks cancel <id>` leaves automatic updates and other jobs in place. The existing `cancel` command clears all jobs and pauses automatic updates.
 
 The maximum command radius is **16,384 blocks**. Radius render commands do not generate new chunks, and force-render does not bypass Diorama's web-map-land policy. Use **web-map-land=generated** to include already pregenerated finished land, or **web-map-land=visited** to restrict it to chunks inhabited by players.
 

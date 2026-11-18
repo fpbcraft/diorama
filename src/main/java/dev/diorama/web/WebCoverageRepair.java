@@ -16,7 +16,10 @@ final class WebCoverageRepair {
 	}
 	void add(int zoom,int u,int v){if(zoom==0||oldOverviews)work.add(new Tile(zoom,u,v));}
 	boolean pending(){return !work.isEmpty();}
-	boolean step(int budget,LongConsumer rerender)throws IOException {
+	boolean step(int budget, LongConsumer rerender) throws IOException {
+		return step(budget, rerender, (zoom, key) -> {});
+	}
+	boolean step(int budget, LongConsumer rerender, java.util.function.BiConsumer<Integer, Long> published) throws IOException {
 		boolean changed=false;
 		for(int n=0;n<budget&&!work.isEmpty();n++){
 			Tile tile=work.removeFirst();Path jpeg=file(tile.zoom,tile.u,tile.v);
@@ -26,15 +29,21 @@ final class WebCoverageRepair {
 					if(WebCoverage.valid(jpeg))continue;
 					boolean recovered;
 					try{recovered=WebCoverage.recoverDepth(jpeg);}catch(IOException error){recovered=false;}
-					if(recovered)changed=true;else rerender.accept((long)tile.u<<32|tile.v&0xffffffffL);
+					if (recovered) {
+						published.accept(tile.zoom, key(tile));
+						changed = true;
+					} else rerender.accept(key(tile));
 				}else{
 					Path[] children=new Path[4];for(int i=0;i<4;i++)children[i]=file(tile.zoom-1,tile.u*2+(i&1),tile.v*2+(i>>1));
-					WebCoverage.shrink(jpeg,children);changed=true;
+					WebCoverage.shrink(jpeg,children);
+					published.accept(tile.zoom, key(tile));
+					changed=true;
 				}
 			}catch(IOException error){work.addFirst(tile);throw error;}
 		}
 		if(work.isEmpty()&&oldOverviews){Files.createDirectories(folder);Files.writeString(marker,"2\n");}
 		return changed;
 	}
+	private static long key(Tile tile) { return (long) tile.u << 32 | tile.v & 0xffffffffL; }
 	private Path file(int zoom,int u,int v){return folder.resolve(Integer.toString(zoom)).resolve(u+"_"+v+".jpg");}
 }

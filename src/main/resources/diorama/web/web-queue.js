@@ -21,7 +21,17 @@ export class WebQueue {
     }catch{this.data=null;this.status.textContent='Queue status unavailable';}
     finally{this.request=null;this.overlay.invalidate();if(!this.abort.signal.aborted&&this.api.visible('queuedTiles'))this.timer=setTimeout(()=>void this.poll(),2000);}
   }
-  showStatus(){const row=this.data?.dimensions?.[this.api.getState()?.dimension];this.status.textContent=row?`${row.queuedTiles} tiles queued · ${row.waitingChunks} chunks waiting${this.data.paused?' · Paused':''}${row.truncated?' · Partial view':''}`:'No queued tiles';}
+  showStatus(){
+    const dimension=this.api.getState()?.dimension;
+    const row=this.data?.dimensions?.[dimension];
+    const progress=this.data?.progress;
+    const active=typeof progress==='string'&&progress.startsWith(dimension+' ')&&!this.data.paused;
+    this.status.textContent=row?[
+      `${row.queuedTiles} tiles queued`, `${row.waitingChunks} chunks waiting`,
+      this.data.paused?'Paused':active?progress.slice(dimension.length+1):'',
+      row.truncated?'Partial view':'',
+    ].filter(Boolean).join(' · '):'No queued tiles';
+  }
   draw(ctx,state){
     if(!this.api.visible('queuedTiles')||!this.data||Date.now()-this.data.generatedAt>15000)return;this.showStatus();
     const cells=this.data.dimensions?.[state.dimension]?.tiles;if(!Array.isArray(cells))return;

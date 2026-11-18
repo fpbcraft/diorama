@@ -42,6 +42,9 @@ public final class WebMapCommand {
 		root.then(Commands.literal("pause").executes(c -> control(c, "stop")));
 		root.then(Commands.literal("cancel").executes(c -> control(c, "cancel")));
 		root.then(Commands.literal("reload").executes(WebMapCommand::reload));
+		root.then(Commands.literal("tasks").executes(WebMapCommand::tasks)
+			.then(Commands.literal("cancel")
+				.then(Commands.argument("id", IntegerArgumentType.integer(1)).executes(WebMapCommand::cancelTask))));
 
 		render(root, "render", false);
 		render(root, "update", false);
@@ -50,6 +53,39 @@ public final class WebMapCommand {
 		dispatcher.register(root);
 		dispatcher.register(Commands.literal("diorama").requires(root.getRequirement())
 			.then(Commands.literal("reload").executes(WebMapCommand::reload)));
+	}
+
+	private static int tasks(CommandContext<CommandSourceStack> context) {
+		WebMap map = WebMap.get();
+		if (map == null) {
+			context.getSource().sendFailure(Component.literal("Diorama web map is disabled"));
+			return 0;
+		}
+		var rows = map.taskStatus();
+		context.getSource().sendSuccess(() -> Component.literal(rows.isEmpty()
+			? "No pending operator render tasks. Use /diorama-web status for automatic updates."
+			: String.join("\n", rows)), false);
+		return 1;
+	}
+
+	private static int cancelTask(CommandContext<CommandSourceStack> context) {
+		int id = IntegerArgumentType.getInteger(context, "id");
+		WebMap map = WebMap.get();
+		if (map == null || !map.cancelTask(id)) {
+			context.getSource().sendFailure(Component.literal("No pending render task #" + id));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> Component.literal("Cancellation requested for render task #" + id), false);
+		return 1;
+	}
+
+	private static int queued(CommandContext<CommandSourceStack> context, int id) {
+		if (id == 0) {
+			context.getSource().sendFailure(Component.literal("The operator render queue is full"));
+			return 0;
+		}
+		context.getSource().sendSuccess(() -> Component.literal("Queued render task #" + id + ". Use /diorama-web tasks."), false);
+		return 1;
 	}
 
 	private static int reload(CommandContext<CommandSourceStack> context) {
@@ -112,10 +148,7 @@ public final class WebMapCommand {
 			context.getSource().sendFailure(Component.literal("Diorama web map is disabled"));
 			return 0;
 		}
-		map.requestFull(force);
-		context.getSource().sendSuccess(() -> Component.literal(
-			"Queued " + (force ? "forced" : "normal") + " render for all dimensions. Use /diorama-web status."), false);
-		return 1;
+		return queued(context, map.requestFull(force));
 	}
 
 	private static int area(CommandContext<CommandSourceStack> context, String dimension, int x, int z, int radius, boolean force) {
@@ -135,11 +168,7 @@ public final class WebMapCommand {
 			context.getSource().sendFailure(Component.literal("Unknown or unloaded dimension: " + dimension));
 			return 0;
 		}
-		map.requestArea(dimension, x, z, radius, force);
-		context.getSource().sendSuccess(() -> Component.literal(
-			"Queued " + (force ? "force-render" : "render") + " for " + dimension
-				+ " around " + x + "," + z + " radius " + radius + " blocks."), false);
-		return 1;
+		return queued(context, map.requestArea(dimension, x, z, radius, force));
 	}
 
 	private static int control(CommandContext<CommandSourceStack> context, String operation) {

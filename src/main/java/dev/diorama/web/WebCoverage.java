@@ -30,7 +30,10 @@ final class WebCoverage {
 		catch(IOException|RuntimeException error){return false;}
 	}
 	static long version(Path jpeg) throws IOException {
-		long time=Files.getLastModifiedTime(jpeg).toMillis();Path mask=file(jpeg);
+		return version(jpeg, Files.getLastModifiedTime(jpeg).toMillis());
+	}
+	static long version(Path jpeg, long time) throws IOException {
+		Path mask=file(jpeg);
 		return Files.isRegularFile(mask)?Math.max(time,Files.getLastModifiedTime(mask).toMillis()):time;
 	}
 	/** Existing depth retains which pixels hit terrain, even when a legacy JPEG flattened alpha. */

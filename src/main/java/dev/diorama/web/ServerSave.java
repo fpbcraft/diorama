@@ -282,6 +282,10 @@ final class ServerSave implements ChunkSave {
 		return regions;
 	}
 
+	boolean regionRemoved(long region) {
+		return Files.notExists(this.regionFolder.resolve("r." + (int) (region >> 32) + "." + (int) region + ".mca"));
+	}
+
 	/** A region file's chunk save times, from its header: 4 KiB of locations, then 4 KiB of times. */
 	private int @Nullable [] readHeader(Path file) {
 		try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
