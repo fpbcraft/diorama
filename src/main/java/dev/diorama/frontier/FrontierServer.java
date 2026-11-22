@@ -120,7 +120,7 @@ public final class FrontierServer {
 
     private void broadcast(byte[] message) {
         for (ServerPlayer player : this.server.getPlayerList().getPlayers()) {
-            if (player.connection.hasChannel(ShareProtocol.TYPE)) {
+            if (dev.diorama.share.ShareServer.listeningTo(player)) {
                 ShareProtocol.send(player, message);
             }
         }
