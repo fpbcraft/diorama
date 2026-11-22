@@ -130,9 +130,10 @@ public final class FrontierMapEditor {
 
     public boolean saved() {
         if (!active || !validDraft()) return false;
-        boolean submitted = FrontierClient.put(draft);
-        if (submitted) cancel();
-        return submitted;
+        // Keep the in-progress polygon until the server broadcasts its
+        // authoritative update. A stale revision or denied write must not
+        // silently discard the operator's unsaved vertices.
+        return FrontierClient.put(draft);
     }
 
     public boolean delete() {
