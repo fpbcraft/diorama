@@ -10,7 +10,7 @@ import dev.diorama.render.MinimapFrames;
 import dev.diorama.drawing.DrawingOverlay;
 import dev.diorama.drawing.DrawingStore;
 import dev.diorama.frontier.Frontier;
-import dev.diorama.frontier.FrontierStore;
+import dev.diorama.frontier.FrontierClient;
 import dev.diorama.render.Markers;
 import dev.diorama.render.Radar;
 import dev.diorama.render.TextSize;
@@ -456,12 +456,9 @@ public final class MinimapHud implements HudElement {
 			// the End have no day of their own, and this is when the player's bed would work.
 			lines.add(new InfoLine(gameTime(settings.gameTime, mc.level.getOverworldClockTime()), mc.level.isDarkOutside() ? BED_TIME_COLOR : INFO_COLOR));
 		}
-		FrontierStore frontiers = FrontierStore.get();
-		if (frontiers != null) {
-			Frontier here = frontiers.at(mc.level.dimension().identifier().toString(), viewer.getX(), viewer.getZ());
-			if (here != null) {
-				lines.add(new InfoLine(here.name, 0xFF000000 | here.color));
-			}
+		Frontier here = dev.diorama.frontier.FrontierClient.at(mc.level.dimension().identifier().toString(), viewer.getX(), viewer.getZ());
+		if (here != null) {
+			lines.add(new InfoLine(here.name, 0xFF000000 | here.color));
 		}
 		return lines;
 	}
