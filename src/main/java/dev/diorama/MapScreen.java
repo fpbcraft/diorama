@@ -11,6 +11,7 @@ import dev.diorama.drawing.DrawingOverlay;
 import dev.diorama.frontier.Frontier;
 import dev.diorama.frontier.FrontierEditScreen;
 import dev.diorama.frontier.FrontierClient;
+import dev.diorama.frontier.FrontierProjection;
 import dev.diorama.frontier.FrontierMapEditor;
 import dev.diorama.bake.Overlays;
 import dev.diorama.bake.TileKey;
@@ -1218,7 +1219,7 @@ public final class MapScreen extends Screen {
 					this.menu = new MapMenu(List.of(
 						MapMenu.Item.title(Component.literal("Map area")),
 						MapMenu.Item.action(Component.literal("Convert to named frontier"), true, () ->
-							this.minecraft.gui.setScreen(new FrontierEditScreen(this, Frontier.fromDrawing(area), area)))
+							this.minecraft.gui.setScreen(new FrontierEditScreen(this, FrontierProjection.fromDrawing(area), area)))
 					), this.font, screenX, screenY, this.width, this.height);
 					return;
 				}
