@@ -310,6 +310,27 @@ public final class OpacClaims {
 		}
 	}
 
+	/**
+	 * Open OPAC's own claims/party management menu through its public client API.
+	 * Both parent references point back to Diorama so Escape and the menu's Back
+	 * control return to the map. The optional mod is never linked at class load.
+	 */
+	public static boolean openMainMenu(Minecraft mc, net.minecraft.client.gui.screens.Screen returnToMap) {
+		if (!installed() || mc.level == null) return false;
+		try {
+			Object clientApi = Class.forName("xaero.pac.client.api.OpenPACClientAPI")
+				.getMethod("get").invoke(null);
+			Class<?> screen = net.minecraft.client.gui.screens.Screen.class;
+			clientApi.getClass().getMethod("openMainMenuScreen", screen, screen)
+				.invoke(clientApi, returnToMap, returnToMap);
+			return true;
+		} catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+			// Do not disable OPAC claims/overlays when only the optional menu failed.
+			Diorama.LOGGER.warn("Could not open the Open Parties and Claims menu", e);
+			return false;
+		}
+	}
+
 	public enum Action { CLAIM, UNCLAIM, FORCELOAD, UNFORCELOAD }
 
 	private static boolean dimensionMatches(Minecraft mc, Object dimension) {
