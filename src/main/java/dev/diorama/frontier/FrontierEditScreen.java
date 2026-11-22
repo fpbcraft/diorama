@@ -1,7 +1,6 @@
 package dev.diorama.frontier;
 
 import dev.diorama.drawing.Drawing;
-import dev.diorama.drawing.DrawingStore;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -96,24 +95,19 @@ public final class FrontierEditScreen extends Screen {
         if (color == null) {
             return;
         }
-        FrontierStore store = FrontierStore.get();
-        if (store == null) {
-            this.failure = Component.literal("World data is not available");
+        if (!FrontierClient.canEdit()) {
+            this.failure = Component.literal("Only server operators can edit global frontiers");
             return;
         }
         Frontier proposed = this.frontier.copy();
         proposed.name = this.name.getValue().trim();
         proposed.color = color;
-        if (!store.put(proposed)) {
-            this.failure = Component.literal("Could not save frontier");
+        if (!FrontierClient.put(proposed, this.sourceDrawing)) {
+            this.failure = Component.literal("Could not submit frontier to server");
             return;
         }
-        if (this.sourceDrawing != null) {
-            DrawingStore drawings = DrawingStore.get();
-            if (drawings != null) {
-                drawings.remove(this.sourceDrawing);
-            }
-        }
+        // The authoritative update comes back from the server. Only then is a
+        // converted area drawing removed (FrontierClient), preserving it on failure.
         this.onClose();
     }
 
