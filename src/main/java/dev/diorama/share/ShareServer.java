@@ -155,6 +155,11 @@ public final class ShareServer {
 		ShareProtocol.send(player, share.settings.encode());
 	}
 
+	/** Whether this player registered Diorama's optional share channel at login. */
+	public static boolean listeningTo(ServerPlayer player) {
+		return listeners.contains(player.getUUID());
+	}
+
 	/** Server thread: re-read sharing policy and resend rules, including removal of old locks. */
 	public static void reload(MinecraftServer server, Path configFolder) {
 		List<ServerPlayer> connected = new ArrayList<>();
