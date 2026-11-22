@@ -2,6 +2,7 @@ package dev.diorama;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.diorama.api.MapAnnotations;
+import dev.diorama.frontier.FrontierAnnotations;
 import dev.diorama.compat.Contraptions;
 import dev.diorama.compat.CreateCurves;
 import dev.diorama.compat.SubLevels;
@@ -80,6 +81,7 @@ public final class DioramaClient {
 	public static void init() {
 		Crafts.register(Contraptions::bodies);
 		Crafts.register(SubLevels::bodies);
+		FrontierAnnotations.register();
 		//? if >=1.21.6 {
 		DioramaPipelines.init();
 		//?}
