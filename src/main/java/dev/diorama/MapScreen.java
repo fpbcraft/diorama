@@ -6,6 +6,11 @@ import dev.diorama.compat.OpacClaims;
 import dev.diorama.bake.MapPick;
 import dev.diorama.drawing.DrawMode;
 import dev.diorama.drawing.DrawingStore;
+import dev.diorama.drawing.Drawing;
+import dev.diorama.drawing.DrawingOverlay;
+import dev.diorama.frontier.Frontier;
+import dev.diorama.frontier.FrontierEditScreen;
+import dev.diorama.frontier.FrontierStore;
 import dev.diorama.bake.Overlays;
 import dev.diorama.bake.TileKey;
 import dev.diorama.bake.TileSpots;
@@ -1098,6 +1103,39 @@ public final class MapScreen extends Screen {
 		if (pin != null) {
 			this.menu = new MapMenu(this.waypointItems(pin.waypoint()), this.font, screenX, screenY, this.width, this.height);
 			return;
+		}
+		// Frontiers use world coordinates rather than the projected drawing coordinates.
+		// Check the territory and an existing area before opening the regular map menu.
+		FrontierStore frontiers = FrontierStore.get();
+		MapViewport.View view = this.lastView;
+		if (frontiers != null && view != null && !this.draw.active()) {
+			double u = view.centerU() + (screenX - view.x() - view.width() / 2.0) / view.zoom();
+			double v = view.centerV() + (screenY - view.y() - view.height() / 2.0) / view.zoom();
+			double z = Projection.zAt(v, 64);
+			Frontier frontier = frontiers.at(this.dimension(),
+				Projection.facing().worldX(u, z), Projection.facing().worldZ(u, z));
+			if (frontier != null) {
+				this.menu = new MapMenu(List.of(
+					MapMenu.Item.title(Component.literal(frontier.name)),
+					MapMenu.Item.action(Component.literal("Edit frontier"), true, () ->
+						this.minecraft.gui.setScreen(new FrontierEditScreen(this, frontier, null))),
+					MapMenu.Item.confirmed(Component.literal("Delete frontier"),
+						Component.translatable("diorama.menu.delete_confirm"), () -> frontiers.remove(frontier.id))
+				), this.font, screenX, screenY, this.width, this.height);
+				return;
+			}
+			DrawingStore drawn = DrawingStore.get();
+			if (drawn != null && Settings.get().drawings != Settings.DrawingsShown.OFF) {
+				Drawing area = DrawingOverlay.under(this.font, view, drawn.in(this.dimension()), screenX, screenY, false);
+				if (area != null && area.kind == Drawing.Kind.AREA && area.complete()) {
+					this.menu = new MapMenu(List.of(
+						MapMenu.Item.title(Component.literal("Map area")),
+						MapMenu.Item.action(Component.literal("Convert to named frontier"), true, () ->
+							this.minecraft.gui.setScreen(new FrontierEditScreen(this, Frontier.fromDrawing(area), area)))
+					), this.font, screenX, screenY, this.width, this.height);
+					return;
+				}
+			}
 		}
 		CompletableFuture<MapLevel.Spot> spot = this.spotAt(screenX, screenY, true);
 		BlockPos rough = this.roughSpot(screenX, screenY);
