@@ -372,7 +372,7 @@ public final class MapScreen extends Screen {
 			this.cancelClaimSelection();
 		}
 		this.opacEditButton.setMessage(Component.literal(this.opacEditing ? "OPAC: Done" : "OPAC: Edit"));
-		this.placeOpacControls();
+		if (this.opacToolButton != null) this.placeOpacControls();
 		this.frontierButton.visible = FrontierClient.available();
 		this.frontierButton.active = FrontierClient.canEdit();
 		this.frontierButton.setMessage(Component.literal(this.frontierEditor.active() ? "Frontiers: Done" : "Frontiers: Edit"));
@@ -1189,6 +1189,7 @@ public final class MapScreen extends Screen {
 		}
 		this.claimSelecting = false;
 		this.claimRemoving = false;
+		this.claimForceloadSelecting = false;
 	}
 
 	/**
