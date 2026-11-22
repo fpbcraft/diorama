@@ -10,7 +10,8 @@ import dev.diorama.drawing.Drawing;
 import dev.diorama.drawing.DrawingOverlay;
 import dev.diorama.frontier.Frontier;
 import dev.diorama.frontier.FrontierEditScreen;
-import dev.diorama.frontier.FrontierStore;
+import dev.diorama.frontier.FrontierClient;
+import dev.diorama.frontier.FrontierMapEditor;
 import dev.diorama.bake.Overlays;
 import dev.diorama.bake.TileKey;
 import dev.diorama.bake.TileSpots;
@@ -167,6 +168,15 @@ public final class MapScreen extends Screen {
 	private Button settingsButton;
 	/** Quick visibility control for all claim providers; the last non-off setting is remembered. */
 	private Button claimsButton;
+	/** Global frontiers are server-owned; this toggle only appears if the server supports them. */
+	private Button frontierButton;
+	private Button frontierNewButton;
+	private Button frontierAddButton;
+	private Button frontierRenameButton;
+	private Button frontierDeleteButton;
+	private Button frontierSaveButton;
+	private Button frontierCancelButton;
+	private final FrontierMapEditor frontierEditor = new FrontierMapEditor();
 	/** Turns draw mode on and off; it sits above the zoom buttons. */
 	private Button drawButton;
 	private final DrawMode draw = new DrawMode();
@@ -254,14 +264,14 @@ public final class MapScreen extends Screen {
 		this.claimsButton = this.addRenderableWidget(Button.builder(claimsToggleLabel(), b -> this.toggleClaims())
 			.size(66, BAR).createNarration(n -> claimsToggleLabel()).build());
 		this.claimsButton.visible = Claims.supported();
-		int right = this.width;
-		for (Button button : List.of(this.settingsButton, this.waypointsButton, this.mapsButton, this.claimsButton)) {
-			if (button.visible) {
-				right -= button.getWidth();
-				button.setPosition(right, 0);
-				right -= 2;
-			}
-		}
+		this.frontierButton = this.addRenderableWidget(Button.builder(Component.literal("Frontiers: Edit"), b -> {
+			if (!FrontierClient.canEdit()) return;
+			if (!this.frontierEditor.active() && this.draw.active()) this.draw.stop();
+			this.cancelClaimSelection();
+			this.frontierEditor.toggle();
+			this.menu = null;
+		}).size(88, BAR).build());
+		this.placeHeaderButtons();
 		this.export = this.addRenderableWidget(Button.builder(Component.empty(), b -> {
 			this.menu = null;
 			this.minecraft.gui.setScreen(new ExportScreen(this, this.centerU, this.centerV, this.zoom, this.layer, this.width, this.height));
@@ -286,11 +296,75 @@ public final class MapScreen extends Screen {
 		}).size(18, 14).createNarration(n -> Component.translatable("diorama.map.slice_down")).build());
 		this.drawButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> {
 			this.menu = null;
+			if (!this.draw.active()) this.frontierEditor.stop();
 			this.draw.toggle();
 		}).size(20, 20).createNarration(n -> Component.translatable("diorama.draw.button")).build());
+		this.frontierNewButton = this.addRenderableWidget(Button.builder(Component.literal("New"), b ->
+			this.frontierEditor.newFrontier(this.dimension())).size(44, 20).build());
+		this.frontierAddButton = this.addRenderableWidget(Button.builder(Component.literal("Add Point"), b ->
+			this.frontierEditor.addPoint()).size(72, 20).build());
+		this.frontierRenameButton = this.addRenderableWidget(Button.builder(Component.literal("Rename"), b -> {
+			Frontier draft = this.frontierEditor.draft();
+			if (draft != null && draft.valid()) this.minecraft.gui.setScreen(new FrontierEditScreen(this, draft, null));
+		}).size(58, 20).build());
+		this.frontierDeleteButton = this.addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
+			if (this.frontierEditor.draft() != null) {
+				this.menu = new MapMenu(List.of(
+					MapMenu.Item.confirmed(Component.literal("Delete global frontier"),
+						Component.translatable("diorama.menu.delete_confirm"), () -> this.frontierEditor.delete())),
+					this.font, b.getX(), b.getY(), this.width, this.height);
+			}
+		}).size(54, 20).build());
+		this.frontierSaveButton = this.addRenderableWidget(Button.builder(Component.literal("Save"), b -> this.saveFrontierDraft()).size(48, 20).build());
+		this.frontierCancelButton = this.addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> this.frontierEditor.cancel()).size(52, 20).build());
 		this.draw.init(this.font, this::addRenderableWidget, this::setFocused, (x, y) -> this.spotAt(x, y, false).thenApply(MapLevel.Spot::pos),
 			(u, v) -> this.spotAtMap(u, v, false).thenApply(MapLevel.Spot::pos), this::dimension);
 		this.placeControls();
+		this.placeFrontierControls();
+	}
+
+	private void placeHeaderButtons() {
+		this.frontierButton.visible = FrontierClient.available();
+		this.frontierButton.active = FrontierClient.canEdit();
+		this.frontierButton.setMessage(Component.literal(this.frontierEditor.active() ? "Frontiers: Done" : "Frontiers: Edit"));
+		int right = this.width;
+		for (Button button : List.of(this.settingsButton, this.waypointsButton, this.mapsButton, this.claimsButton, this.frontierButton)) {
+			if (button.visible) {
+				right -= button.getWidth();
+				button.setPosition(right, 0);
+				right -= 2;
+			}
+		}
+	}
+
+	private void placeFrontierControls() {
+		boolean show = this.frontierEditor.active() && FrontierClient.canEdit();
+		int x = Math.max(4, this.width / 2 - 174);
+		int y = this.height - BOTTOM_BAR - 24;
+		for (Button button : List.of(this.frontierNewButton, this.frontierAddButton,
+			this.frontierRenameButton, this.frontierDeleteButton, this.frontierSaveButton, this.frontierCancelButton)) {
+			button.visible = show;
+			button.setPosition(x, y);
+			x += button.getWidth() + 3;
+		}
+		Frontier draft = this.frontierEditor.draft();
+		this.frontierAddButton.active = show && draft != null;
+		this.frontierRenameButton.active = show && draft != null && draft.valid();
+		this.frontierDeleteButton.active = show && draft != null;
+		this.frontierSaveButton.active = show && draft != null && draft.valid();
+		this.frontierAddButton.setMessage(Component.literal(this.frontierEditor.adding() ? "Stop Points" : "Add Point"));
+	}
+
+	private void saveFrontierDraft() {
+		Frontier draft = this.frontierEditor.draft();
+		if (draft == null || !draft.valid()) return;
+		boolean exists = FrontierClient.all().stream().anyMatch(f -> f.id.equals(draft.id));
+		if (exists) {
+			if (!this.frontierEditor.saved()) this.showClaimFeedback(Component.literal("Could not submit global frontier"), true, false);
+		} else {
+			this.frontierEditor.cancel();
+			this.minecraft.gui.setScreen(new FrontierEditScreen(this, draft, null));
+		}
 	}
 
 	/** The dimensions to step through: the player's, and every other with a saved map. */
@@ -329,6 +403,7 @@ public final class MapScreen extends Screen {
 
 	/** The map now shows another dimension, or the player's own again. */
 	private void viewChanged() {
+		this.frontierEditor.leaveDimension();
 		this.menu = null;
 		this.gauge.cancel();
 		this.following = true;
@@ -442,6 +517,7 @@ public final class MapScreen extends Screen {
 	}
 
 	private void placeControls() {
+		this.placeFrontierControls();
 		boolean caves = this.layer != TileKey.SURFACE;
 		int x = this.width - (caves ? 56 : 26);
 		int y = this.height - 90;
@@ -491,6 +567,8 @@ public final class MapScreen extends Screen {
 		// The map can open before a server names its world, and the list of maps is the world's.
 		this.mapsButton.active = Maps.get() != null;
 		this.claimsButton.active = this.otherDimension == null;
+		this.placeHeaderButtons();
+		if (!FrontierClient.canEdit() && this.frontierEditor.active()) this.frontierEditor.stop();
 		MapSession session = MapSession.get();
 		Entity viewer = MapSession.viewer();
 		if (session == null || viewer == null) {
@@ -529,6 +607,7 @@ public final class MapScreen extends Screen {
 			this.worldBorder.draw(graphics, this.font, view, this.minecraft.level, viewer);
 		}
 		MapAnnotations.draw(graphics, view, this.dimension(), true);
+		this.frontierEditor.draw(graphics, view);
 		DrawingStore drawings = DrawingStore.get();
 		if (drawings != null && (this.draw.active() || Settings.get().drawings != Settings.DrawingsShown.OFF)) {
 			this.draw.drawMap(graphics, this.font, view, drawings.in(this.dimension()), mouseX, mouseY, !this.overControls(mouseX, mouseY));
@@ -646,6 +725,10 @@ public final class MapScreen extends Screen {
 				current.getX() >> 4, current.getZ() >> 4);
 			help = tooFar ? "OPAC: Outside claimable range"
 				: "OPAC: Shift+left drag to claim · Shift+right drag to unclaim · Esc cancels";
+		} else if (this.frontierEditor.active()) {
+			help = "Global frontiers: " + (this.frontierEditor.adding()
+				? "Click to add vertices · Save to publish"
+				: "Click a frontier to select · Drag its vertices · Add Point to extend");
 		} else {
 			help = (this.draw.active() ? this.draw.help() : HELP).getString();
 		}
@@ -770,7 +853,7 @@ public final class MapScreen extends Screen {
 	/** Where the buttons at the top right start: the status line has to end before them. */
 	private int buttonsStart() {
 		int start = this.width;
-		for (Button button : List.of(this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton)) {
+		for (Button button : List.of(this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton, this.frontierButton)) {
 			if (button.visible) {
 				start = Math.min(start, button.getX());
 			}
@@ -898,7 +981,9 @@ public final class MapScreen extends Screen {
 		this.pressX = x;
 		this.pressY = y;
 		this.dragged = false;
-		if (!this.draw.active() && this.otherDimension == null && DrawMode.shiftDown()
+		if (this.frontierEditor.active() && this.lastView != null
+			&& this.frontierEditor.press(this.lastView, x, y, button)) return true;
+		if (!this.frontierEditor.active() && !this.draw.active() && this.otherDimension == null && DrawMode.shiftDown()
 			&& (button == InputConstants.MOUSE_BUTTON_LEFT || button == InputConstants.MOUSE_BUTTON_RIGHT)
 			&& OpacClaims.available(this.minecraft)) {
 			this.claimSelecting = true;
@@ -954,6 +1039,8 @@ public final class MapScreen extends Screen {
 			}
 			return true;
 		}
+		if (this.frontierEditor.active() && !this.pressOnControl && this.lastView != null
+			&& this.frontierEditor.release(this.lastView, this.dimension(), x, y, button, moved)) return true;
 		if (this.draw.active() && !this.pressOnControl && this.lastView != null
 			&& this.draw.release(this.lastView, this.font, this.dimension(), x, y, button, moved)) {
 			return true;
@@ -1106,13 +1193,13 @@ public final class MapScreen extends Screen {
 		}
 		// Frontiers use world coordinates rather than the projected drawing coordinates.
 		// Check the territory and an existing area before opening the regular map menu.
-		FrontierStore frontiers = FrontierStore.get();
+		boolean editingAllowed = FrontierClient.canEdit();
 		MapViewport.View view = this.lastView;
-		if (frontiers != null && view != null && !this.draw.active()) {
+		if (editingAllowed && view != null && !this.draw.active() && !this.frontierEditor.active()) {
 			double u = view.centerU() + (screenX - view.x() - view.width() / 2.0) / view.zoom();
 			double v = view.centerV() + (screenY - view.y() - view.height() / 2.0) / view.zoom();
 			double z = Projection.zAt(v, 64);
-			Frontier frontier = frontiers.at(this.dimension(),
+			Frontier frontier = FrontierClient.at(this.dimension(),
 				Projection.facing().worldX(u, z), Projection.facing().worldZ(u, z));
 			if (frontier != null) {
 				this.menu = new MapMenu(List.of(
@@ -1120,7 +1207,7 @@ public final class MapScreen extends Screen {
 					MapMenu.Item.action(Component.literal("Edit frontier"), true, () ->
 						this.minecraft.gui.setScreen(new FrontierEditScreen(this, frontier, null))),
 					MapMenu.Item.confirmed(Component.literal("Delete frontier"),
-						Component.translatable("diorama.menu.delete_confirm"), () -> frontiers.remove(frontier.id))
+						Component.translatable("diorama.menu.delete_confirm"), () -> FrontierClient.remove(frontier.id))
 				), this.font, screenX, screenY, this.width, this.height);
 				return;
 			}
@@ -1383,6 +1470,8 @@ public final class MapScreen extends Screen {
 		if (this.pressOnControl) {
 			return false;
 		}
+		if (this.frontierEditor.active() && this.lastView != null
+			&& this.frontierEditor.drag(this.lastView, x, y)) return true;
 		if (this.claimSelecting) {
 			this.claimEndX = x;
 			this.claimEndY = y;
@@ -1438,6 +1527,10 @@ public final class MapScreen extends Screen {
 
 	/** A key press, and whether it is bound to the waypoint list or the map; false leaves it to the screen. */
 	private boolean keyDown(int key, boolean waypointListKey, boolean mapKey, boolean dimensionKey) {
+		if (key == InputConstants.KEY_ESCAPE && this.frontierEditor.active()) {
+			this.frontierEditor.stop();
+			return true;
+		}
 		if (key == InputConstants.KEY_ESCAPE && this.claimSelecting) {
 			this.cancelClaimSelection();
 			return true;
@@ -1747,7 +1840,7 @@ public final class MapScreen extends Screen {
 
 	/** Whether a point is on a shown button, whether or not it can be pressed right now. */
 	private boolean onButton(double x, double y) {
-		for (AbstractWidget widget : new AbstractWidget[] {this.facingButton, this.dimensionButton, this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton, this.export, this.zoomIn, this.zoomOut, this.recenter, this.sliceUp, this.sliceDown, this.drawButton}) {
+		for (AbstractWidget widget : new AbstractWidget[] {this.facingButton, this.dimensionButton, this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton, this.frontierButton, this.frontierNewButton, this.frontierAddButton, this.frontierRenameButton, this.frontierDeleteButton, this.frontierSaveButton, this.frontierCancelButton, this.export, this.zoomIn, this.zoomOut, this.recenter, this.sliceUp, this.sliceDown, this.drawButton}) {
 			if (on(widget, x, y)) {
 				return true;
 			}
