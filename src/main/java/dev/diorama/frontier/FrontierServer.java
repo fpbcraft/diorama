@@ -67,6 +67,10 @@ public final class FrontierServer {
         FrontierServer active = current;
         if (active == null || player.getServer() != active.server) return true;
         int kind = data[0] & 0xFF;
+        if (kind == FrontierWire.REFRESH) {
+            active.snapshot(player);
+            return true;
+        }
         if (kind != FrontierWire.PUT && kind != FrontierWire.REMOVE) return true;
         if (!canEdit(player)) {
             ShareProtocol.send(player, FrontierWire.error("Only server operators can edit global frontiers"));
@@ -75,14 +79,20 @@ public final class FrontierServer {
         try (DataInputStream in = FrontierWire.input(data)) {
             int requestedRevision = in.readInt();
             if (requestedRevision != active.revision) {
-                FrontierWire.complete(in); // A stale PUT has payload, so don't parse it as success.
+                active.snapshot(player);
                 return true;
             }
             if (kind == FrontierWire.PUT) {
                 Frontier frontier = FrontierWire.readFrontier(in);
                 FrontierWire.complete(in);
-                if (active.server.getAllLevels().stream().noneMatch(level ->
-                    level.dimension().identifier().toString().equals(frontier.dimension))) {
+                boolean foundDimension = false;
+                for (net.minecraft.server.level.ServerLevel level : active.server.getAllLevels()) {
+                    if (level.dimension().identifier().toString().equals(frontier.dimension)) {
+                        foundDimension = true;
+                        break;
+                    }
+                }
+                if (!foundDimension) {
                     throw new IOException("Unknown dimension");
                 }
                 if (!active.store.put(frontier)) {
