@@ -1,6 +1,8 @@
 package dev.diorama.frontier;
 
 import dev.diorama.Diorama;
+import dev.diorama.drawing.Drawing;
+import dev.diorama.drawing.DrawingStore;
 import dev.diorama.share.ShareProtocol;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -19,6 +21,7 @@ import org.jspecify.annotations.Nullable;
  */
 public final class FrontierClient {
     private static final Map<UUID, Frontier> visible = new LinkedHashMap<>();
+    private static final Map<UUID, Drawing> pendingConversions = new LinkedHashMap<>();
     private static @Nullable Map<UUID, Frontier> incoming;
     private static boolean ready;
     private static boolean editable;
@@ -29,6 +32,7 @@ public final class FrontierClient {
 
     public static void reset() {
         visible.clear();
+        pendingConversions.clear();
         incoming = null;
         ready = false;
         editable = false;
@@ -68,7 +72,12 @@ public final class FrontierClient {
     }
 
     public static boolean put(Frontier draft) {
+        return put(draft, null);
+    }
+
+    public static boolean put(Frontier draft, @Nullable Drawing convertedFrom) {
         if (!canEdit() || !draft.valid()) return false;
+        if (convertedFrom != null) pendingConversions.put(draft.id, convertedFrom);
         ShareProtocol.sendToServer(FrontierWire.put(revision, draft.copy()));
         return true;
     }
@@ -120,6 +129,9 @@ public final class FrontierClient {
                     }
                     visible.put(frontier.id, frontier);
                     revision = nextRevision;
+                    Drawing original = pendingConversions.remove(frontier.id);
+                    DrawingStore drawings = DrawingStore.get();
+                    if (original != null && drawings != null) drawings.remove(original);
                 }
                 case FrontierWire.REMOVED -> {
                     int nextRevision = in.readInt();
@@ -133,6 +145,7 @@ public final class FrontierClient {
                 }
                 case FrontierWire.ERROR -> {
                     String message = in.readUTF();
+                    pendingConversions.clear();
                     Minecraft mc = Minecraft.getInstance();
                     if (mc.gui != null) mc.gui.setOverlayMessage(Component.literal(message), false);
                 }
