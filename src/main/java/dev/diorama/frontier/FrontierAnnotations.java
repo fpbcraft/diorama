@@ -29,7 +29,7 @@ public final class FrontierAnnotations implements MapAnnotations.Source {
         List<Drawing> shapes = new ArrayList<>(frontiers.size());
         for (Frontier frontier : frontiers) {
             if (frontier.visible) {
-                shapes.add(frontier.asDrawing());
+                shapes.add(FrontierProjection.asDrawing(frontier));
             }
         }
         Font font = Minecraft.getInstance().font;
