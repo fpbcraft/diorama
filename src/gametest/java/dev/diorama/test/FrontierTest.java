@@ -59,12 +59,19 @@ final class FrontierTest {
                 }
             }
 
-            FrontierStore store = FrontierStore.get();
-            if (store == null || !store.put(frontier)) {
+            java.nio.file.Path dir;
+            try {
+                dir = java.nio.file.Files.createTempDirectory("diorama-frontiers-test-");
+            } catch (java.io.IOException e) {
+                throw new AssertionError(e);
+            }
+            java.nio.file.Path file = dir.resolve("frontiers.json");
+            FrontierStore store = FrontierStore.open(file);
+            if (!store.put(frontier)) {
                 throw new AssertionError("Could not store test frontier");
             }
             try {
-                Frontier loaded = FrontierStore.open(dev.diorama.WorldKey.current())
+                Frontier loaded = FrontierStore.open(file)
                     .in(dimension).stream().filter(f -> f.id.equals(frontier.id)).findFirst().orElse(null);
                 if (loaded == null || !loaded.contains(x, z) || loaded.color != frontier.color) {
                     throw new AssertionError("Frontier did not persist and reload");
@@ -76,6 +83,12 @@ final class FrontierTest {
             } finally {
                 if (!store.remove(frontier.id)) {
                     throw new AssertionError("Could not remove test frontier");
+                }
+                try {
+                    java.nio.file.Files.deleteIfExists(file);
+                    java.nio.file.Files.deleteIfExists(dir);
+                } catch (java.io.IOException e) {
+                    throw new AssertionError(e);
                 }
             }
         });
