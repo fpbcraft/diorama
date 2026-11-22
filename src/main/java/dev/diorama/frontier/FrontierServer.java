@@ -11,7 +11,7 @@ import net.minecraft.world.level.storage.LevelResource;
 
 /**
  * Server-authoritative global frontiers. All clients can read; only OP level 2
- * (or the integrated singleplayer host) may create, move, rename or delete.
+ * may create, move, rename or delete, including LAN players.
  * All requests are validated again on the server, regardless of client UI state.
  */
 public final class FrontierServer {
@@ -38,7 +38,6 @@ public final class FrontierServer {
     }
 
     public static boolean canEdit(ServerPlayer player) {
-        if (!player.getServer().isDedicatedServer()) return true;
         //? if >=1.21.11 {
         return net.minecraft.commands.Commands.hasPermission(
             net.minecraft.commands.Commands.LEVEL_GAMEMASTERS).test(player.createCommandSourceStack());
