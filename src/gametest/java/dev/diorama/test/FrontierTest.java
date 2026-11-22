@@ -4,6 +4,7 @@ import dev.diorama.Projection;
 import dev.diorama.drawing.Drawing;
 import dev.diorama.frontier.Frontier;
 import dev.diorama.frontier.FrontierStore;
+import dev.diorama.frontier.FrontierProjection;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 
 /** Geometry, persistence, defensive copies and world-anchored coordinates of native frontiers. */
@@ -49,7 +50,7 @@ final class FrontierTest {
                     Projection.u(x + 50, z + 50), Projection.v(x + 50, 64, z + 50),
                     Projection.u(x - 50, z + 50), Projection.v(x - 50, 64, z + 50)
                 }, "");
-            Frontier converted = Frontier.fromDrawing(area);
+            Frontier converted = FrontierProjection.fromDrawing(area);
             if (!converted.contains(x, z)) {
                 throw new AssertionError("Area conversion lost world geometry");
             }
