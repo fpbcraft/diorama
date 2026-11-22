@@ -17,7 +17,7 @@ permissions managed and enforced by the Open Parties and Claims mod.
   client-only code or forged packets cannot bypass it.
 - Other players can view frontiers and the current territory name on the
   fullscreen map/minimap, but cannot use the edit toggle.
-- On singleplayer/integrated servers, the hosting player can edit frontiers.
+- On integrated worlds or LAN games, the player also needs operator-equivalent permissions (for example, cheats enabled for the host). LAN guests are not implicitly authorized.
 - If the connected server doesn't run the new Diorama implementation, no global
   frontier data is available and server-authoritative editing stays off.
 
