@@ -21,6 +21,7 @@ public final class FrontierWire {
     public static final int CHANGED = 11;
     public static final int REMOVED = 12;
     public static final int ERROR = 13;
+    public static final int REFRESH = 14;
     private static final int MAX_MESSAGE = 8192;
 
     private FrontierWire() {
@@ -28,7 +29,7 @@ public final class FrontierWire {
 
     public static boolean isFrontier(byte[] data) {
         return data != null && data.length > 0
-            && (data[0] & 0xFF) >= BEGIN && (data[0] & 0xFF) <= ERROR;
+            && (data[0] & 0xFF) >= BEGIN && (data[0] & 0xFF) <= REFRESH;
     }
 
     public interface Writer {
