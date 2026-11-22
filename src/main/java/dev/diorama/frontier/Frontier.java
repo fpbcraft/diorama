@@ -1,8 +1,5 @@
 package dev.diorama.frontier;
 
-import dev.diorama.Facing;
-import dev.diorama.Projection;
-import dev.diorama.drawing.Drawing;
 import java.util.UUID;
 
 /**
@@ -11,7 +8,6 @@ import java.util.UUID;
  */
 public final class Frontier {
     public static final int MAX_VERTICES = 256;
-    private static final double GROUND_Y = 64.0;
 
     public UUID id = UUID.randomUUID();
     public String dimension = "";
@@ -33,37 +29,6 @@ public final class Frontier {
         copy.visible = this.visible;
         copy.vertices = this.vertices.clone();
         return copy;
-    }
-
-    /** Convert a Diorama polygon drawing into a world-anchored frontier. */
-    public static Frontier fromDrawing(Drawing area) {
-        if (area.kind != Drawing.Kind.AREA || !area.complete()) {
-            throw new IllegalArgumentException("A complete area drawing is required");
-        }
-        double[] shown = area.shown();
-        Facing facing = Projection.facing();
-        Frontier frontier = new Frontier();
-        frontier.dimension = area.dimension;
-        frontier.color = area.color & 0xFFFFFF;
-        frontier.vertices = new double[shown.length];
-        for (int i = 0; i < shown.length; i += 2) {
-            double z = Projection.zAt(shown[i + 1], GROUND_Y);
-            frontier.vertices[i] = facing.worldX(shown[i], z);
-            frontier.vertices[i + 1] = facing.worldZ(shown[i], z);
-        }
-        return frontier;
-    }
-
-    /** Reproject world geometry on each render, never persist map-camera coordinates. */
-    public Drawing asDrawing() {
-        double[] shown = new double[this.vertices.length];
-        for (int i = 0; i < this.vertices.length; i += 2) {
-            double x = this.vertices[i];
-            double z = this.vertices[i + 1];
-            shown[i] = Projection.u(x, z);
-            shown[i + 1] = Projection.v(x, GROUND_Y, z);
-        }
-        return new Drawing(Drawing.Kind.AREA, this.dimension, this.color, shown, "");
     }
 
     public boolean contains(double x, double z) {
@@ -96,7 +61,7 @@ public final class Frontier {
     }
 
     public boolean valid() {
-        if (this.id == null || this.dimension == null || this.dimension.isBlank()
+        if (this.id == null || this.dimension == null || this.dimension.isBlank() || this.dimension.length() > 128
             || this.name == null || this.name.isBlank() || this.name.length() > 48
             || this.vertices == null || this.vertices.length < 6
             || (this.vertices.length & 1) != 0 || this.vertices.length / 2 > MAX_VERTICES) {
