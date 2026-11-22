@@ -136,6 +136,9 @@ public class DioramaClientTest implements FabricClientGameTest {
 			if (tests.contains("drawings")) {
 				DrawingTest.run(context, world);
 			}
+			if (tests.contains("frontiers")) {
+				FrontierTest.run(context);
+			}
 			if (tests.contains("world-border")) {
 				WorldBorderTest.run(context, world);
 			}
