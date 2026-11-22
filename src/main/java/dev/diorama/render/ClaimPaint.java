@@ -71,6 +71,15 @@ final class ClaimPaint {
 			marked[id] = claim.forceLoaded();
 			hatch[id] = abgr(FORCE_HATCH_ALPHA, claim.rgb());
 		}
+		// Precompute stripe coordinates once per tile, not for every filled pixel.
+		// At high zoom-out levels the stronger base tint remains visible even
+		// where individual stripes are too small to resolve.
+		long[] hatchU = new long[size];
+		long[] hatchV = new long[size];
+		for (int i = 0; i < size; i++) {
+			hatchU[i] = (long) Math.floor((key.minU() + (i + 0.5) * step) / FORCE_HATCH_UNITS);
+			hatchV[i] = (long) Math.floor((key.minV() + (i + 0.5) * step) / FORCE_HATCH_UNITS);
+		}
 		int[] pixels = new int[size * size];
 		for (int y = 0; y < size; y++) {
 			for (int x = 0; x < size; x++) {
@@ -88,10 +97,7 @@ final class ClaimPaint {
 					// Marked-for-forceloading claims use distinct diagonal stripes, not
 					// just a slightly darker fill. Absolute projected coordinates keep
 					// the pattern aligned when neighboring map tiles are rendered.
-					double u = key.minU() + (x + 0.5) * step;
-					double v = key.minV() + (y + 0.5) * step;
-					long diagonal = (long) Math.floor(u / FORCE_HATCH_UNITS)
-						+ (long) Math.floor(v / FORCE_HATCH_UNITS);
+					long diagonal = hatchU[x] + hatchV[y];
 					pixels[y * size + x] = Math.floorMod(diagonal, 5L) == 0
 						? hatch[id] : fill[id];
 				} else {
