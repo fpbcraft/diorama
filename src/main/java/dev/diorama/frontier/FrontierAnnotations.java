@@ -25,11 +25,7 @@ public final class FrontierAnnotations implements MapAnnotations.Source {
 
     @Override
     public void draw(GuiGraphicsExtractor graphics, MapViewport.View view, String dimension, boolean fullscreen) {
-        FrontierStore store = FrontierStore.get();
-        if (store == null) {
-            return;
-        }
-        List<Frontier> frontiers = store.in(dimension);
+        List<Frontier> frontiers = FrontierClient.in(dimension);
         List<Drawing> shapes = new ArrayList<>(frontiers.size());
         for (Frontier frontier : frontiers) {
             if (frontier.visible) {
