@@ -147,7 +147,7 @@ public final class FrontierClient {
                     String message = in.readUTF();
                     pendingConversions.clear();
                     Minecraft mc = Minecraft.getInstance();
-                    if (mc.gui != null) mc.gui.setOverlayMessage(Component.literal(message), false);
+                    if (mc.gui != null) mc.gui.hud.setOverlayMessage(Component.literal(message), false);
                 }
                 default -> { return; }
             }
