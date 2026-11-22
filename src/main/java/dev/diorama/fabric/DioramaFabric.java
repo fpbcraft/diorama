@@ -100,6 +100,7 @@ public final class DioramaFabric implements ClientModInitializer {
 			WaypointStore.onLeave();
 			Maps.onLeave();
 			DrawingStore.onLeave();
+			dev.diorama.frontier.FrontierStore.onLeave();
 			WorldKey.onJoinOrLeave();
 			XaeroChannels.onJoinOrLeave();
 			ShareClient.onJoinOrLeave();
@@ -113,6 +114,7 @@ public final class DioramaFabric implements ClientModInitializer {
 			WaypointStore.onLeave();
 			Maps.onLeave();
 			DrawingStore.onLeave();
+			dev.diorama.frontier.FrontierStore.onLeave();
 			WorldKey.onJoinOrLeave();
 			XaeroChannels.onJoinOrLeave();
 			ShareClient.onJoinOrLeave();
