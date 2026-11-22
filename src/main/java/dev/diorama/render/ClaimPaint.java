@@ -14,7 +14,11 @@ import org.jspecify.annotations.Nullable;
 /** Straight chunk boundaries on a fixed-height plane, independent of hills, trees and saved picks. */
 final class ClaimPaint {
 	static final int FILL_ALPHA = 0x33;
-	static final int FORCE_LOADED_ALPHA = 0x52;
+	/** More opaque than regular claims, so marked chunks remain distinguishable at far zoom. */
+	static final int FORCE_LOADED_ALPHA = 0x72;
+	static final int FORCE_HATCH_ALPHA = 0xBF;
+	/** Diagonal stripe spacing in projected map units; anchored to world tiles, not viewport pixels. */
+	private static final double FORCE_HATCH_UNITS = 4.0;
 	static final int EDGE_ALPHA = 0xCC;
 
 	private ClaimPaint() {
@@ -58,10 +62,14 @@ final class ClaimPaint {
 		if (!any) return null;
 		int[] fill = new int[owners.size()];
 		int[] line = new int[owners.size()];
+		int[] hatch = new int[owners.size()];
+		boolean[] marked = new boolean[owners.size()];
 		for (int id = 1; id < owners.size(); id++) {
 			Claims.Claim claim = owners.get(id);
 			fill[id] = abgr(claim.forceLoaded() ? FORCE_LOADED_ALPHA : FILL_ALPHA, claim.rgb());
 			line[id] = abgr(EDGE_ALPHA, claim.rgb());
+			marked[id] = claim.forceLoaded();
+			hatch[id] = abgr(FORCE_HATCH_ALPHA, claim.rgb());
 		}
 		int[] pixels = new int[size * size];
 		for (int y = 0; y < size; y++) {
@@ -74,7 +82,21 @@ final class ClaimPaint {
 					border |= ids[i - d] != id || ids[i + d] != id
 						|| ids[i - stride * d] != id || ids[i + stride * d] != id;
 				}
-				pixels[y * size + x] = border ? line[id] : fill[id];
+				if (border) {
+					pixels[y * size + x] = line[id];
+				} else if (marked[id]) {
+					// Marked-for-forceloading claims use distinct diagonal stripes, not
+					// just a slightly darker fill. Absolute projected coordinates keep
+					// the pattern aligned when neighboring map tiles are rendered.
+					double u = key.minU() + (x + 0.5) * step;
+					double v = key.minV() + (y + 0.5) * step;
+					long diagonal = (long) Math.floor(u / FORCE_HATCH_UNITS)
+						+ (long) Math.floor(v / FORCE_HATCH_UNITS);
+					pixels[y * size + x] = Math.floorMod(diagonal, 5L) == 0
+						? hatch[id] : fill[id];
+				} else {
+					pixels[y * size + x] = fill[id];
+				}
 			}
 		}
 		return pixels;
