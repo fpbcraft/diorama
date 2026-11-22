@@ -109,6 +109,7 @@ public final class DioramaNeoForge {
 			WaypointStore.onLeave();
 			Maps.onLeave();
 			DrawingStore.onLeave();
+			dev.diorama.frontier.FrontierStore.onLeave();
 			WorldKey.onJoinOrLeave();
 			XaeroChannels.onJoinOrLeave();
 			ShareClient.onJoinOrLeave();
@@ -122,6 +123,7 @@ public final class DioramaNeoForge {
 			WaypointStore.onLeave();
 			Maps.onLeave();
 			DrawingStore.onLeave();
+			dev.diorama.frontier.FrontierStore.onLeave();
 			WorldKey.onJoinOrLeave();
 			// Mods sync block ids from the server before this, which can number block states differently.
 			BlockLooks.invalidate();
