@@ -1,63 +1,81 @@
-# Native frontiers (FPBCraft Diorama fork)
+# Global frontiers (FPBCraft Diorama fork)
 
-This feature implements **local named polygon territories in Diorama**, without JourneyMap
-or MapFrontiers installed. It is an initial native alternative, **not yet feature parity**
-with MapFrontiers.
+A JourneyMap-free, server-authoritative territory overlay integrated directly into Diorama.
+This is intentionally separate from **OPAC claims**, which are real protection/claim
+permissions managed and enforced by the Open Parties and Claims mod.
 
-## Use
+## Multiplayer setup
 
-1. Open Diorama's fullscreen map (default `M`).
-2. Select the pencil (Draw mode), then the **Area** tool (polygon icon).
-3. Left-click points around the territory; finish with right-click or Enter.
-4. Exit Draw mode with the pencil or Escape.
-5. Right-click inside the finished area and choose **Convert to named frontier**.
-6. Enter a name and a six-digit hex colour, then Save.
+- Install the **same built Diorama fork JAR** on the NeoForge 1.21.1 dedicated
+  server and on each player's client. No JourneyMap or MapFrontiers installation.
+- The server saves all global territories at:
+  `<world>/data/diorama-frontiers.json`.
+- Every player with Diorama receives the same global frontier list on joining,
+  even if `share-map=false` in Diorama's shared-terrain configuration.
+- A player with vanilla **OP level 2 or higher** can create, change, rename
+  or delete frontiers. The server checks that permission on every request;
+  client-only code or forged packets cannot bypass it.
+- Other players can view frontiers and the current territory name on the
+  fullscreen map/minimap, but cannot use the edit toggle.
+- On singleplayer/integrated servers, the hosting player can edit frontiers.
+- If the connected server doesn't run the new Diorama implementation, no global
+  frontier data is available and server-authoritative editing stays off.
 
-The area is converted to a frontier; on successful save, the original drawing is
-removed so that it does not render twice. Right-click in an existing frontier
-to **Edit** or **Delete** it. Deletion asks for confirmation.
+## Map editor
 
-The frontier renders above the fullscreen map and minimap. The fullscreen map shows
-its name near its centre; the minimap's information lines display the name while
-the player stands inside it.
+1. Open the map with `M`.
+2. Toggle **Frontiers: Edit** in the existing compact top-right button row.
+   This button is only enabled when the server grants operator permissions.
+3. Choose **New**, then click map positions to add polygon vertices.
+4. Click **Save** when the polygon contains at least three vertices. A small
+   editor lets you name it and pick its colour. The server confirms and
+   broadcasts the new territory to everyone.
+5. Click an existing frontier while in editing mode to select it. Drag a
+   square vertex handle to move it, or toggle **Add Point** to append vertices.
+   Press **Save** to submit changes.
+6. **Rename** opens the name/colour editor; **Delete** confirms before
+   submitting the removal; **Cancel** discards the uncommitted edit.
+7. Toggle **Frontiers: Done** to leave frontier editing.
 
-## Data and compatibility
+Existing Diorama Draw → Area polygons can also be converted using the
+right-click context menu **only for operators**. The original personal
+drawing is removed only after the server acknowledges the new global frontier.
 
-- Data is written locally to `.minecraft/diorama/<world>/frontiers.json`, beside
-  `drawings.json` and `waypoints.json`. Each entry has a stable UUID, dimension,
-  name, RGB colour, visibility flag and an array of X/Z world-space vertices.
-- Unlike ordinary drawings, frontiers are independent of the selected Diorama
-  sub-map. Rotating the map does not move their real-world boundaries.
-- Geometry is projected using a representative height of Y=64, so filled shapes
-  may not precisely follow terrain or cliffs in the angled 3D map.
-- No JourneyMap dependency, MapFrontiers dependency, external service, or extra
-  server installation is needed for **local** frontiers.
-- There is **no synchronization** between players. Other players cannot see
-  a frontier you create unless they receive the data file separately.
-- Malformed frontier entries are ignored, with a backup copy of the source JSON.
+Frontier names and outlines are always displayed to players in the relevant
+dimension. Editing nodes and the editing toolbar appear only for authorized
+operators in the corresponding edit mode. View coordinates are stored as
+world X/Z, not map-camera coordinates, so map rotation does not alter boundaries.
 
-## Outstanding features for MapFrontiers parity
+## Protocol and limits
 
-1. **Shared server frontiers.** Provide an optional NeoForge server-side module
-   with persisted global territories, versioned packets, delta synchronization,
-   ownership and server-validated create/edit/delete permissions.
-2. **Chunk and path frontiers.** Support unioned claimed-chunk shapes, additive and
-   subtractive chunk editing, line paths with width and dashed/marker styles, and
-   arbitrary vertex editing.
-3. **Collections and visibility.** Tree/list management, per-player local
-   visibility controls, sharing roles, labels, filters, search and sorting.
-4. **HUD and world display.** Enter/exit notification, configurable banner or
-   current-area HUD, world-space boundary markers and distance limits.
-5. **FPBCraft integrations.** Optionally read OPAC claims and MineColonies borders
-   into read-only generated frontiers, with server names and ownership colours;
-   distinguish a visual annotation from the permissions actually enforced by OPAC.
-6. **Migration and web display.** Optional import of the MIT-licensed
-   MapFrontiers storage format after validating its current schema, plus display on
-   Diorama's separate browser map.
+- Separate versioned frontier messages reuse Diorama's optional share play
+  channel, but do not depend on the shared terrain feature being enabled.
+- Full snapshots send a begin frame, one frame per territory, and an end frame.
+  Subsequent authorized changes are broadcast as revisioned deltas.
+- Stale edit requests trigger a fresh server snapshot rather than silently
+  overwriting another operator's update.
+- Maximum **512 global frontiers** per world, each containing **3–256**
+  polygon vertices. Invalid/oversized geometry is rejected.
+- Global data is saved atomically and invalid JSON entries are backed up.
+- An approximate Y=64 projection is used for frontier fills. Terrain-aware
+  outlines over mountains/cliffs are a subsequent improvement.
 
-## Tests
+## Roadmap
 
-`DIORAMA_TESTS=frontiers` uses the existing client GameTest runner to check
-world-coordinate conversion, point-in-polygon hit testing, defensive copies,
-JSON persistence and cleanup. The test currently has not been run against the
-fully modded FPBCraft NeoForge client.
+- Refine vertex insertion, polygon validation (intersections), labels and
+  visibility settings without changing the server-authority model.
+- Add optional admin lists, search, collection/group organization and
+  visibility overrides.
+- Add separate OPAC region edit mode in its own stacked PR. OPAC's existing
+  client requests are validated by OPAC on the server, not by the frontier
+  JSON store.
+- Add a read-only global frontier overlay to the browser map and optional
+  imports from existing MapFrontiers data.
+
+## Validation
+
+The GitHub Actions NeoForge 1.21.1 build checks compilation, the companion
+addon and web-assets builds. The selected `DIORAMA_TESTS=frontiers` client
+GameTest validates model geometry and server-format JSON persistence, but
+the test must be run separately from the default CI build. Multi-client
+operator/guest validation is also required before production deployment.
