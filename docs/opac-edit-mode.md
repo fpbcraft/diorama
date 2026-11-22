@@ -42,3 +42,30 @@ client/OP/moderator permissions (depending on OPAC settings), single-chunk
 clicks and rectangular drags, cancelling with Escape, and toggling Frontier,
 OPAC and Draw modes. Confirm that regular players cannot use global
 Frontier editing even if they can claim land through OPAC.
+
+## Forceloading visibility and editing
+
+- **Marked for forceloading** claims display a stronger translucent tint and
+  diagonal hatching on the fullscreen map and minimap. Normal claims remain
+  lightly filled. This uses OPAC's own `isForceloadable()` claim marker.
+- The map tooltip explicitly says **marked for forceloading**. This is not
+  an assertion that a server ticket is active at the present moment: OPAC's
+  API exposes the requested mark, which can exceed an active limit.
+- Enter **OPAC: Edit**; the bottom **Tool: Claims** button switches to
+  **Tool: Forceload** (click again to return to Claims).
+- With the forceload tool selected, **left-click/drag** marks already-claimed
+  chunks for forceloading and **right-click/drag** removes those marks.
+  Both modes use OPAC's existing `requestAreaForceload` API and result handler;
+  the server enforces its usual permissions and limits.
+- Press the new top-row **OPAC Menu** button to open OPAC's own party/claim
+  management screen. It calls OPAC's public `openMainMenuScreen` API;
+  exiting returns to the Diorama map. The button is only shown when OPAC
+  is installed on the client.
+
+### Additional QA
+
+Check that normal claims and forceload-marked claims have visibly different
+fills, including across render tile seams and after reconnecting; that
+forceload toggles are reflected in overlays after the server responds; and
+that OPAC Menu returns to a functional map. Test normal players, operators
+and permission-denied selections on NeoForge 1.21.1.
