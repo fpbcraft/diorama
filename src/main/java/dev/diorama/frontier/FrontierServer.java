@@ -15,22 +15,34 @@ import net.minecraft.world.level.storage.LevelResource;
  * All requests are validated again on the server, regardless of client UI state.
  */
 public final class FrontierServer {
-    private static FrontierServer current;
+    private static volatile FrontierServer current;
 
     private final MinecraftServer server;
     private final FrontierStore store;
     private int revision;
+    private volatile java.util.List<Frontier> published;
 
     private FrontierServer(MinecraftServer server) {
         this.server = server;
         Path file = server.getWorldPath(LevelResource.ROOT)
             .resolve("data").resolve("diorama-frontiers.json");
         this.store = FrontierStore.open(file);
+        this.publish();
     }
 
     public static void started(MinecraftServer server) {
         current = new FrontierServer(server);
         Diorama.LOGGER.info("Global frontiers initialized for {}", server.getWorldPath(LevelResource.ROOT));
+    }
+
+    /** Read-only copies published by the server thread, safe for the web exporter. */
+    public static java.util.List<Frontier> webSnapshot(MinecraftServer server) {
+        FrontierServer active = current;
+        return active != null && active.server == server ? active.published : java.util.List.of();
+    }
+
+    private void publish() {
+        this.published = this.store.all().stream().filter(frontier -> frontier.visible).toList();
     }
 
     public static void stopped(MinecraftServer server) {
@@ -49,13 +61,14 @@ public final class FrontierServer {
     /** Client can read all dimensions. Never send authority or storage paths. */
     public static void listening(ServerPlayer player) {
         FrontierServer active = current;
-        if (active != null && player.getServer() == active.server) active.snapshot(player);
+        if (active != null && player.level().getServer() == active.server) active.snapshot(player);
     }
 
     private void snapshot(ServerPlayer player) {
         ShareProtocol.send(player, FrontierWire.begin(this.revision, canEdit(player)));
         for (Frontier frontier : this.store.all()) {
             ShareProtocol.send(player, FrontierWire.entry(frontier));
+            if (frontier.banner != null) ShareProtocol.send(player, FrontierWire.banner(frontier));
         }
         ShareProtocol.send(player, FrontierWire.end());
     }
@@ -64,7 +77,7 @@ public final class FrontierServer {
     public static boolean receive(ServerPlayer player, byte[] data) {
         if (!FrontierWire.isFrontier(data)) return false;
         FrontierServer active = current;
-        if (active == null || player.getServer() != active.server) return true;
+        if (active == null || player.level().getServer() != active.server) return true;
         int kind = data[0] & 0xFF;
         if (kind == FrontierWire.REFRESH) {
             active.snapshot(player);
@@ -83,6 +96,9 @@ public final class FrontierServer {
             }
             if (kind == FrontierWire.PUT) {
                 Frontier frontier = FrontierWire.readFrontier(in);
+                Frontier previous = active.store.byId(frontier.id);
+                boolean bannerEdited = in.available() > 0;
+                frontier.banner = bannerEdited ? FrontierWire.readBanner(in) : previous == null ? null : previous.banner;
                 FrontierWire.complete(in);
                 boolean foundDimension = false;
                 for (net.minecraft.server.level.ServerLevel level : active.server.getAllLevels()) {
@@ -98,8 +114,10 @@ public final class FrontierServer {
                     ShareProtocol.send(player, FrontierWire.error("Could not save frontier; check the shape or server storage"));
                     return true;
                 }
+                active.publish();
                 active.revision++;
                 active.broadcast(FrontierWire.changed(active.revision, frontier));
+                if (bannerEdited) active.broadcast(FrontierWire.banner(frontier));
             } else {
                 java.util.UUID id = FrontierWire.readUuid(in);
                 FrontierWire.complete(in);
@@ -107,6 +125,7 @@ public final class FrontierServer {
                     ShareProtocol.send(player, FrontierWire.error("Frontier no longer exists or could not be deleted"));
                     return true;
                 }
+                active.publish();
                 active.revision++;
                 active.broadcast(FrontierWire.removed(active.revision, id));
             }

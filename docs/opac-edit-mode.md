@@ -6,8 +6,8 @@ it does not change how OPAC stores claims or decides who can claim land.
 
 ## Usage
 
-- The top-right map buttons now include **OPAC: Edit**, immediately beside
-  **Frontiers: Edit** and the existing **Claims: On/Off** visibility button.
+- The right-side toolbar includes **Edit OPAC claims**, **Edit global frontiers**,
+  and **Claims** visibility. Contextual editing tools appear beside it.
 - Press **OPAC: Edit** to enter an explicit chunk editing mode.
 - **Left-click or left-drag** to claim a chunk or rectangle of chunks.
 - **Right-click or right-drag** to unclaim chunks in the selected rectangle.
@@ -51,13 +51,13 @@ Frontier editing even if they can claim land through OPAC.
 - The map tooltip explicitly says **marked for forceloading**. This is not
   an assertion that a server ticket is active at the present moment: OPAC's
   API exposes the requested mark, which can exceed an active limit.
-- Enter **OPAC: Edit**; the bottom **Tool: Claims** button switches to
+- Enter **OPAC Edit**. The contextual **Tool: Claims** button switches to
   **Tool: Forceload** (click again to return to Claims).
 - With the forceload tool selected, **left-click/drag** marks already-claimed
   chunks for forceloading and **right-click/drag** removes those marks.
   Both modes use OPAC's existing `requestAreaForceload` API and result handler;
   the server enforces its usual permissions and limits.
-- Press the new top-row **OPAC Menu** button to open OPAC's own party/claim
+- Press the side toolbar’s **Open Parties and Claims menu** button to open OPAC's own party/claim
   management screen. It calls OPAC's public `openMainMenuScreen` API;
   exiting returns to the Diorama map. The button is only shown when OPAC
   is installed on the client.

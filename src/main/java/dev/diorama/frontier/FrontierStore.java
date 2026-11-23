@@ -49,6 +49,11 @@ public final class FrontierStore {
             .map(Frontier::copy).toList();
     }
 
+    public @Nullable Frontier byId(UUID id) {
+        return this.frontiers.stream().filter(frontier -> frontier.id.equals(id)).findFirst()
+            .map(Frontier::copy).orElse(null);
+    }
+
     public @Nullable Frontier at(String dimension, double x, double z) {
         for (int i = this.frontiers.size() - 1; i >= 0; i--) {
             Frontier f = this.frontiers.get(i);

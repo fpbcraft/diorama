@@ -10,6 +10,9 @@ import dev.diorama.render.MinimapFrames;
 import dev.diorama.drawing.DrawingOverlay;
 import dev.diorama.drawing.DrawingStore;
 import dev.diorama.frontier.Frontier;
+import dev.diorama.frontier.FrontierBanner;
+import dev.diorama.frontier.FrontierBannerItems;
+import net.minecraft.world.item.ItemStack;
 import dev.diorama.frontier.FrontierClient;
 import dev.diorama.render.Markers;
 import dev.diorama.render.Radar;
@@ -287,7 +290,9 @@ public final class MinimapHud implements HudElement {
 		float left = x - 2;
 		float textRight = x + size + 2;
 		for (InfoLine line : info) {
-			float w = font.width(line.text()) * text;
+			ItemStack banner = FrontierBannerItems.stack(line.banner());
+			int iconWidth = banner.isEmpty() ? 0 : 12;
+			float w = (font.width(line.text()) + iconWidth) * text;
 			// A line wider than the minimap grows away from the screen edge the minimap is placed by; it stays on screen while it fits.
 			// Centred on a whole GUI pixel, rounded down as the game's own text size always was.
 			float tx = anchor.centered() ? x + (float) Math.floor((size - w) / 2) : anchor.right() ? x + size - w : x;
@@ -295,7 +300,8 @@ public final class MinimapHud implements HudElement {
 			graphics.pose().pushMatrix();
 			graphics.pose().translate(tx, textY);
 			graphics.pose().scale(text);
-			graphics.text(font, line.text(), 0, 0, line.color(), true);
+			if (!banner.isEmpty()) FrontierBannerItems.draw(graphics, banner, 0, -1, 11);
+			graphics.text(font, line.text(), iconWidth, 0, line.color(), true);
 			graphics.pose().popMatrix();
 			left = Math.min(left, tx - 1);
 			textRight = Math.max(textRight, tx + w + 1);
@@ -456,9 +462,20 @@ public final class MinimapHud implements HudElement {
 			// the End have no day of their own, and this is when the player's bed would work.
 			lines.add(new InfoLine(gameTime(settings.gameTime, mc.level.getOverworldClockTime()), mc.level.isDarkOutside() ? BED_TIME_COLOR : INFO_COLOR));
 		}
-		Frontier here = dev.diorama.frontier.FrontierClient.at(mc.level.dimension().identifier().toString(), viewer.getX(), viewer.getZ());
-		if (here != null) {
-			lines.add(new InfoLine(here.name, 0xFF000000 | here.color));
+		var dimension = mc.level.dimension();
+		if (settings.minimapFrontierName) {
+			Frontier here = FrontierClient.at(dimension.identifier().toString(), viewer.getX(), viewer.getZ());
+			if (here != null) lines.add(new InfoLine(here.name, 0xFF000000 | here.color, here.banner));
+		}
+		if (settings.minimapClaimName) {
+			Claims.Claim claim = Claims.at(dimension, pos.getX() >> 4, pos.getZ() >> 4);
+			if (claim != null) {
+				String name = claim.name();
+				if (name.isBlank()) name = Component.translatable("diorama.map.claim.unnamed").getString();
+				String label = claim.titled() && !claim.name().isBlank()
+					? name : Component.translatable("diorama.map.claim", name).getString();
+				lines.add(new InfoLine(label, INFO_COLOR));
+			}
 		}
 		return lines;
 	}
@@ -483,7 +500,8 @@ public final class MinimapHud implements HudElement {
 	}
 
 	/** A line under the minimap. */
-	private record InfoLine(String text, int color) {
+	private record InfoLine(String text, int color, @Nullable FrontierBanner banner) {
+		InfoLine(String text, int color) { this(text, color, null); }
 	}
 
 	/** Called as the game draws each boss bar, with the bar's top. */

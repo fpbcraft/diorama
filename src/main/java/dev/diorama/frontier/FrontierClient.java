@@ -76,9 +76,13 @@ public final class FrontierClient {
     }
 
     public static boolean put(Frontier draft, @Nullable Drawing convertedFrom) {
+        return put(draft, convertedFrom, false);
+    }
+
+    public static boolean put(Frontier draft, @Nullable Drawing convertedFrom, boolean bannerEdited) {
         if (!canEdit() || !draft.valid()) return false;
         if (convertedFrom != null) pendingConversions.put(draft.id, convertedFrom);
-        ShareProtocol.sendToServer(FrontierWire.put(revision, draft.copy()));
+        ShareProtocol.sendToServer(FrontierWire.put(revision, draft.copy(), bannerEdited));
         return true;
     }
 
@@ -127,11 +131,21 @@ public final class FrontierClient {
                         requestRefresh();
                         return;
                     }
+                    Frontier previous = visible.get(frontier.id);
+                    if (previous != null) frontier.banner = previous.banner;
                     visible.put(frontier.id, frontier);
                     revision = nextRevision;
                     Drawing original = pendingConversions.remove(frontier.id);
                     DrawingStore drawings = DrawingStore.get();
                     if (original != null && drawings != null) drawings.remove(original);
+                }
+                case FrontierWire.BANNER -> {
+                    in.readUTF();
+                    UUID id = FrontierWire.readUuid(in);
+                    FrontierBanner banner = FrontierWire.readBanner(in);
+                    FrontierWire.complete(in);
+                    Frontier frontier = (incoming == null ? visible : incoming).get(id);
+                    if (frontier != null) frontier.banner = banner;
                 }
                 case FrontierWire.REMOVED -> {
                     int nextRevision = in.readInt();

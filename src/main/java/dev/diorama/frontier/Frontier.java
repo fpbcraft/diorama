@@ -1,6 +1,7 @@
 package dev.diorama.frontier;
 
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A named, dimension-bound territory. Vertex coordinates are world X/Z, not projected
@@ -14,6 +15,7 @@ public final class Frontier {
     public String name = "";
     public int color = 0x55AA77;
     public boolean visible = true;
+    public @Nullable FrontierBanner banner;
     /** Pairs of world X and Z coordinates. */
     public double[] vertices = new double[0];
 
@@ -27,6 +29,7 @@ public final class Frontier {
         copy.name = this.name;
         copy.color = this.color;
         copy.visible = this.visible;
+        copy.banner = this.banner;
         copy.vertices = this.vertices.clone();
         return copy;
     }
@@ -63,6 +66,7 @@ public final class Frontier {
     public boolean valid() {
         if (this.id == null || this.dimension == null || this.dimension.isBlank() || this.dimension.length() > 128
             || this.name == null || this.name.isBlank() || this.name.length() > 48
+            || (this.banner != null && !this.banner.valid())
             || this.vertices == null || this.vertices.length < 6
             || (this.vertices.length & 1) != 0 || this.vertices.length / 2 > MAX_VERTICES) {
             return false;
