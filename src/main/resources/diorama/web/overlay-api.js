@@ -14,10 +14,24 @@ export const screenPosition = (point, state) => {
     y: (v - state.v) * state.scale + state.height / 2 };
 };
 
+/** Intersect a screen point with the same horizontal plane an overlay was drawn on. */
+export function worldAtScreen(x, y, height, state) {
+  if (!state || !state.projection.sin) return null;
+  const u = state.u + (x - state.width / 2) / state.scale;
+  const v = state.v + (y - state.height / 2) / state.scale;
+  const z = (v + height * state.projection.cos) / state.projection.sin;
+  switch (state.projection.facing) {
+    case 1: return { x: -z, z: u };
+    case 2: return { x: -u, z: -z };
+    case 3: return { x: z, z: -u };
+    default: return { x: u, z };
+  }
+}
+
 /** A composited overlay frame never calls the terrain renderer or its tile loader. */
 export const createOverlayApi = ({ container, getState, navigate, setDimension, depthTiles = () => [], vehicleFeed = () => undefined, queueFeed = () => undefined }) => {
   const events = new EventTarget();
-  let visibility={clouds:true,sablePins:true,trainPins:true,sharedMarkers:true,queuedTiles:false,allVehicles:false,loaded:false,claims:false,entities:false,heatmap:false};
+  let visibility={clouds:true,sablePins:true,trainPins:true,sharedMarkers:true,queuedTiles:false,allVehicles:false,loaded:false,claims:false,frontiers:true,entities:false,heatmap:false};
   try {const saved=JSON.parse(localStorage.getItem('diorama-map-visibility')||'{}');for(const key of Object.keys(visibility))if(typeof saved[key]==='boolean')visibility[key]=saved[key];}catch{}
 
   const overlays = new Map();
@@ -48,6 +62,7 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
     version: 1,
     events,
     getState,
+    worldAt: (x, y, height) => worldAtScreen(x, y, height, getState()),
     project: (point) => { const state = getState(); return state ? projectWorld(point, state.projection) : null; },
     screen: (point) => screenPosition(point, getState()),
     navigate,

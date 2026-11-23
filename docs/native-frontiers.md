@@ -69,8 +69,7 @@ world X/Z, not map-camera coordinates, so map rotation does not alter boundaries
 - Add separate OPAC region edit mode in its own stacked PR. OPAC's existing
   client requests are validated by OPAC on the server, not by the frontier
   JSON store.
-- Add a read-only global frontier overlay to the browser map and optional
-  imports from existing MapFrontiers data.
+- Add optional imports from existing MapFrontiers data.
 
 ## Validation
 
@@ -79,3 +78,30 @@ addon and web-assets builds. The selected `DIORAMA_TESTS=frontiers` client
 GameTest validates model geometry and server-format JSON persistence, but
 the test must be run separately from the default CI build. Multi-client
 operator/guest validation is also required before production deployment.
+
+## Browser map
+
+The web map publishes visible global frontiers only in dimensions allowed by the
+server map configuration. A detached snapshot is serialized on a background
+worker to `frontiers.json`; edits and removals appear on the next poll.
+
+Frontiers are enabled for new browser profiles. Existing saved layer choices
+remain in effect. Names are drawn inside each polygon at an interior label
+anchor, with a dark halo; names that cannot fit at the current zoom are hidden.
+The same flat reference height is used for names and boundaries.
+
+The approved web layout puts icon-only Frontiers (flag), OPAC claims (shield,
+when Player History is installed), Vehicles (boat), and Trains buttons in a
+compact vertical strip below settings. Mint indicates enabled. Tooltips and
+accessible names identify the buttons; keyboard activation and focus are
+supported. Other settings remain in the menu. This follows the user-approved
+web mockup; the in-game Xaero-style claim controls are unchanged.
+
+Deploy the updated core and, when installed, the matching `diorama-web` asset
+addon. Player History's matching layer-controls change also hides vehicle and
+train models and replay fallback pins with their respective buttons.
+
+Checks: `node scripts/test-web-frontiers.mjs` verifies concave label placement,
+dimension filtering, and removal publication. The paired Player History browser
+fixture verifies icons, order, default state, labels, saved choices, and mobile
+layout against this frontend. Native game testing remains a separate gate.

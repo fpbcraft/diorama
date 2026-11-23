@@ -106,6 +106,7 @@ public final class WebMap {
 	private dev.diorama.web.vehicles.WebVehicles vehicles;
 	private final WebWaypoints waypoints;
 	private WebQueueStatus queueStatus;
+	private WebFrontiers frontiers;
 	private final WebTracks tracks=new WebTracks();
 	private final VanillaTable table;
 	private final Path modsFolder;
@@ -177,6 +178,12 @@ public final class WebMap {
 		if (map.start()) {
 			running = map;
 			map.waypoints.start();
+			Set<String> publishedDimensions = new HashSet<>();
+			for (ServerLevel level : server.getAllLevels()) {
+				if (!map.leftOut(level)) publishedDimensions.add(level.dimension().identifier().toString());
+			}
+			map.frontiers = new WebFrontiers(map.folder, () -> dev.diorama.frontier.FrontierServer.webSnapshot(server),
+				publishedDimensions::contains);
 			map.queueStatus=new WebQueueStatus(map.folder, map::queuedStatus, () -> map.paused, () -> map.automaticProgress);
 			if (settings.vehicles()) map.vehicles = new dev.diorama.web.vehicles.WebVehicles(map.folder, table, modsFolder,
 				() -> !map.stopping && !map.paused && !map.serverBehind() && !server.isCurrentlySaving());
@@ -256,6 +263,7 @@ public final class WebMap {
 		if (map != null) {
 			if (map.vehicles != null) map.vehicles.close();
 			map.waypoints.close();if(map.queueStatus!=null)map.queueStatus.close();
+			if (map.frontiers != null) map.frontiers.close();
 			map.stop();
 		}
 	}
@@ -322,13 +330,13 @@ public final class WebMap {
 			Files.createDirectories(this.folder);
 			// Old public feeds may contain coordinates from a dimension now excluded by server locks.
 			// Their publishers replace them with current snapshots after startup.
-			for (String feed : new String[] {"markers.json", "queue-status.json", "assets/diorama-vehicles/scene.json"}) {
+			for (String feed : new String[] {"markers.json", "frontiers.json", "queue-status.json", "assets/diorama-vehicles/scene.json"}) {
 				Files.deleteIfExists(this.folder.resolve(feed));
 			}
 			WebPins.install(this.folder);
 			if (!WebFrontendAssets.install(this.folder)) {
 				for (String name : WebFogAssets.FILES) Files.write(this.folder.resolve(name), WebFogAssets.read(name));
-				for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js"}) {
+				for (String asset : new String[] {"index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js", "web-frontiers.js"}) {
 					try (InputStream page = WebMap.class.getResourceAsStream("/diorama/web/" + asset)) {
 						if (page != null) {
 							Files.copy(page, this.folder.resolve(asset), StandardCopyOption.REPLACE_EXISTING);
@@ -959,6 +967,7 @@ public final class WebMap {
 			.append(",\"depth\":").append(this.settings.depth())
 			.append(",\"vehicleFeed\":\"assets/diorama-vehicles/scene.json\"")
 			.append(",\"markerFeed\":\"markers.json\",\"queueFeed\":\"queue-status.json\"")
+			.append(",\"frontierFeed\":\"frontiers.json\"")
 			.append(",\"fogCoverage\":true,\"roundedFog\":").append(dev.diorama.MapStyle.get().roundedFog())
 			.append(",\"background\":\"#").append(String.format(Locale.ROOT, "%06x", WebTiles.BACKGROUND)).append('"')
 			.append(",\"updated\":").append(System.currentTimeMillis())

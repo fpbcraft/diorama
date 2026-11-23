@@ -116,7 +116,7 @@ final class WebServer {
 			exchange.getResponseHeaders().set("Cache-Control", (type.equals("image/jpeg") || name.endsWith(".fog.png") || name.endsWith(".depth") || name.endsWith(".dspr") || name.endsWith(".dshd") || name.endsWith(".ground")) && query != null && query.startsWith("v=")
 				? "public, max-age=31536000, immutable" : "no-cache");
 			boolean live = name.equals("scene.json") || name.equals("live.json") || name.equals("presence.json") || name.equals("player.json")
-				|| name.equals("server-overlays.json") || name.equals("world-status.json");
+				|| name.equals("frontiers.json") || name.equals("server-overlays.json") || name.equals("world-status.json");
 			if (live) exchange.getResponseHeaders().set("Cache-Control", "no-store");
 			if (name.endsWith(".js") && root.relativize(file).toString().replace('\\', '/').matches("modules/[A-Za-z0-9.+-]+/.+\\.js")) {
 				exchange.getResponseHeaders().set("Cache-Control", "public, max-age=31536000, immutable");

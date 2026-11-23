@@ -39,6 +39,7 @@ jobs:
           node scripts/test-web-server.mjs
           node scripts/test-web-terrain.mjs
           node scripts/test-web-vehicles.mjs
+          node scripts/test-web-frontiers.mjs
           node scripts/test-web-tracks.mjs
           node scripts/test-web-tiles.mjs
           node scripts/test-web-fog.mjs

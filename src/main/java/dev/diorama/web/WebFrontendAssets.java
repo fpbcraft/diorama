@@ -12,7 +12,7 @@ import java.util.Set;
 public final class WebFrontendAssets {
     public static final int API_VERSION = 1;
     public static final Set<String> FILES = Set.of(
-        "index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js",
+        "index.html", "overlay-api.js", "web-markers.js", "map-controls.js", "web-queue.js", "web-frontiers.js",
         "web-fog.js", "fog-mask.js", "fog-mask-task.js", "fog-mask-worker.js", "fog-coverage.js",
         "fog-gpu.js", "fog-reveal.js", "fog.fsh", "fog-noise.png"
     );
