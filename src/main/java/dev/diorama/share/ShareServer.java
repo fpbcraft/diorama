@@ -84,6 +84,7 @@ public final class ShareServer {
 
 	/** The server started; {@code configFolder} is the loader's config folder. */
 	public static void started(MinecraftServer server, Path configFolder) {
+		dev.diorama.frontier.FrontierServer.started(server);
 		if (!server.isDedicatedServer()) {
 			// Singleplayer shares nothing, but a modpack's own file can still lock settings.
 			lock(server, ServerLocks.load(configFolder, false));
@@ -121,6 +122,7 @@ public final class ShareServer {
 	}
 
 	public static void stopped(MinecraftServer server) {
+		dev.diorama.frontier.FrontierServer.stopped(server);
 		listeners.clear();
 		Locked locks = locked;
 		if (locks != null && locks.server == server) {
@@ -141,6 +143,7 @@ public final class ShareServer {
 	 */
 	public static void listening(ServerPlayer player) {
 		listeners.add(player.getUUID());
+		dev.diorama.frontier.FrontierServer.listening(player);
 		Locked locks = locked;
 		if (locks != null && player.level().getServer() == locks.server) {
 			ShareProtocol.send(player, locks.locks.encode());
@@ -150,6 +153,11 @@ public final class ShareServer {
 			return;
 		}
 		ShareProtocol.send(player, share.settings.encode());
+	}
+
+	/** Whether this player registered Diorama's optional share channel at login. */
+	public static boolean listeningTo(ServerPlayer player) {
+		return listeners.contains(player.getUUID());
 	}
 
 	/** Server thread: re-read sharing policy and resend rules, including removal of old locks. */
@@ -170,6 +178,7 @@ public final class ShareServer {
 
 	/** A message from a player's Diorama. Server thread. */
 	public static void receive(ServerPlayer player, byte[] data) {
+		if (dev.diorama.frontier.FrontierServer.receive(player, data)) return;
 		if(dev.diorama.web.WebMap.receiveWaypoints(player,data))return;
 		ShareServer share = running;
 		if (share == null || !share.settings.share() || data.length == 0 || player.level().getServer() != share.server) {

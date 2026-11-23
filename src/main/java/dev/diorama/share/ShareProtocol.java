@@ -142,7 +142,7 @@ public final class ShareProtocol {
 	}
 
 	/** Sends a message to a player who has the channel. */
-	static void send(ServerPlayer player, byte[] data) {
+	public static void send(ServerPlayer player, byte[] data) {
 		BiConsumer<ServerPlayer, byte[]> send = sender;
 		if (send != null) {
 			send.accept(player, data);

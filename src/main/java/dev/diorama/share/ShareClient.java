@@ -22,7 +22,9 @@ public final class ShareClient {
 		if (data.length == 0) {
 			return;
 		}
-		if (data[0] == ShareProtocol.LOCKS) {
+		if (dev.diorama.frontier.FrontierWire.isFrontier(data)) {
+			dev.diorama.frontier.FrontierClient.receive(data);
+		} else if (data[0] == ShareProtocol.LOCKS) {
 			ServerLocks locks = ServerLocks.decode(data);
 			if (locks != null) {
 				dev.diorama.ServerRules.onLocks(locks);
@@ -56,6 +58,7 @@ public final class ShareClient {
 
 	/** Left the server, or a network moved the player to another of its servers. */
 	public static void onJoinOrLeave() {
+		dev.diorama.frontier.FrontierClient.reset();
 		settings = null;
 		SharedChunks.closeCurrent();
 	}

@@ -14,7 +14,11 @@ import org.jspecify.annotations.Nullable;
 /** Straight chunk boundaries on a fixed-height plane, independent of hills, trees and saved picks. */
 final class ClaimPaint {
 	static final int FILL_ALPHA = 0x33;
-	static final int FORCE_LOADED_ALPHA = 0x52;
+	/** More opaque than regular claims, so marked chunks remain distinguishable at far zoom. */
+	static final int FORCE_LOADED_ALPHA = 0x72;
+	static final int FORCE_HATCH_ALPHA = 0xBF;
+	/** Diagonal stripe spacing in projected map units; anchored to world tiles, not viewport pixels. */
+	private static final double FORCE_HATCH_UNITS = 4.0;
 	static final int EDGE_ALPHA = 0xCC;
 
 	private ClaimPaint() {
@@ -58,10 +62,23 @@ final class ClaimPaint {
 		if (!any) return null;
 		int[] fill = new int[owners.size()];
 		int[] line = new int[owners.size()];
+		int[] hatch = new int[owners.size()];
+		boolean[] marked = new boolean[owners.size()];
 		for (int id = 1; id < owners.size(); id++) {
 			Claims.Claim claim = owners.get(id);
 			fill[id] = abgr(claim.forceLoaded() ? FORCE_LOADED_ALPHA : FILL_ALPHA, claim.rgb());
 			line[id] = abgr(EDGE_ALPHA, claim.rgb());
+			marked[id] = claim.forceLoaded();
+			hatch[id] = abgr(FORCE_HATCH_ALPHA, claim.rgb());
+		}
+		// Precompute stripe coordinates once per tile, not for every filled pixel.
+		// At high zoom-out levels the stronger base tint remains visible even
+		// where individual stripes are too small to resolve.
+		long[] hatchU = new long[size];
+		long[] hatchV = new long[size];
+		for (int i = 0; i < size; i++) {
+			hatchU[i] = (long) Math.floor((key.minU() + (i + 0.5) * step) / FORCE_HATCH_UNITS);
+			hatchV[i] = (long) Math.floor((key.minV() + (i + 0.5) * step) / FORCE_HATCH_UNITS);
 		}
 		int[] pixels = new int[size * size];
 		for (int y = 0; y < size; y++) {
@@ -74,7 +91,18 @@ final class ClaimPaint {
 					border |= ids[i - d] != id || ids[i + d] != id
 						|| ids[i - stride * d] != id || ids[i + stride * d] != id;
 				}
-				pixels[y * size + x] = border ? line[id] : fill[id];
+				if (border) {
+					pixels[y * size + x] = line[id];
+				} else if (marked[id]) {
+					// Marked-for-forceloading claims use distinct diagonal stripes, not
+					// just a slightly darker fill. Absolute projected coordinates keep
+					// the pattern aligned when neighboring map tiles are rendered.
+					long diagonal = hatchU[x] + hatchV[y];
+					pixels[y * size + x] = Math.floorMod(diagonal, 5L) == 0
+						? hatch[id] : fill[id];
+				} else {
+					pixels[y * size + x] = fill[id];
+				}
 			}
 		}
 		return pixels;

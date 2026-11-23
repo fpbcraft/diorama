@@ -6,6 +6,13 @@ import dev.diorama.compat.OpacClaims;
 import dev.diorama.bake.MapPick;
 import dev.diorama.drawing.DrawMode;
 import dev.diorama.drawing.DrawingStore;
+import dev.diorama.drawing.Drawing;
+import dev.diorama.drawing.DrawingOverlay;
+import dev.diorama.frontier.Frontier;
+import dev.diorama.frontier.FrontierEditScreen;
+import dev.diorama.frontier.FrontierClient;
+import dev.diorama.frontier.FrontierProjection;
+import dev.diorama.frontier.FrontierMapEditor;
 import dev.diorama.bake.Overlays;
 import dev.diorama.bake.TileKey;
 import dev.diorama.bake.TileSpots;
@@ -131,6 +138,8 @@ public final class MapScreen extends Screen {
 	/** Shift-drag claims a rectangular area through OPAC; Shift-right-drag unclaims it. */
 	private boolean claimSelecting;
 	private boolean claimRemoving;
+	/** True while selecting chunks to mark/unmark for forceloading instead of claiming. */
+	private boolean claimForceloadSelecting;
 	/** Short-lived feedback drawn in this map instead of spamming Minecraft chat. */
 	private @Nullable Component claimFeedback;
 	private boolean claimFeedbackError;
@@ -162,6 +171,22 @@ public final class MapScreen extends Screen {
 	private Button settingsButton;
 	/** Quick visibility control for all claim providers; the last non-off setting is remembered. */
 	private Button claimsButton;
+	/** Global frontiers are server-owned; this toggle only appears if the server supports them. */
+	private Button frontierButton;
+	/** Separate OPAC chunk editing mode; OPAC itself authorizes every claim request. */
+	private Button opacEditButton;
+	private Button opacMenuButton;
+	private Button opacToolButton;
+	private boolean opacEditing;
+	/** When true, OPAC edit gestures mark/unmark claims for forceloading. */
+	private boolean opacForceloadTool;
+	private Button frontierNewButton;
+	private Button frontierAddButton;
+	private Button frontierRenameButton;
+	private Button frontierDeleteButton;
+	private Button frontierSaveButton;
+	private Button frontierCancelButton;
+	private final FrontierMapEditor frontierEditor = new FrontierMapEditor();
 	/** Turns draw mode on and off; it sits above the zoom buttons. */
 	private Button drawButton;
 	private final DrawMode draw = new DrawMode();
@@ -227,6 +252,7 @@ public final class MapScreen extends Screen {
 		this.pressOnControl = false;
 		this.claimSelecting = false;
 		this.claimRemoving = false;
+		this.claimForceloadSelecting = false;
 		Settings settings = Settings.get();
 		this.dimensionButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> this.nextDimension())
 			.size(20, 20).createNarration(n -> this.dimensionName().copy()).build());
@@ -249,14 +275,33 @@ public final class MapScreen extends Screen {
 		this.claimsButton = this.addRenderableWidget(Button.builder(claimsToggleLabel(), b -> this.toggleClaims())
 			.size(66, BAR).createNarration(n -> claimsToggleLabel()).build());
 		this.claimsButton.visible = Claims.supported();
-		int right = this.width;
-		for (Button button : List.of(this.settingsButton, this.waypointsButton, this.mapsButton, this.claimsButton)) {
-			if (button.visible) {
-				right -= button.getWidth();
-				button.setPosition(right, 0);
-				right -= 2;
+		this.opacMenuButton = this.addRenderableWidget(Button.builder(Component.literal("OPAC Menu"), b -> {
+			this.cancelClaimSelection();
+			this.menu = null;
+			if (!OpacClaims.openMainMenu(this.minecraft, this)) {
+				this.showClaimFeedback(Component.literal("Could not open the Open Parties and Claims menu"), true, false);
 			}
-		}
+		}).size(78, BAR).build());
+		this.opacEditButton = this.addRenderableWidget(Button.builder(Component.literal("OPAC: Edit"), b -> {
+			if (!OpacClaims.available(this.minecraft)) return;
+			this.opacEditing = !this.opacEditing;
+			this.opacForceloadTool = false;
+			this.cancelClaimSelection();
+			this.menu = null;
+			if (this.opacEditing) {
+				this.frontierEditor.stop();
+				if (this.draw.active()) this.draw.stop();
+			}
+		}).size(82, BAR).build());
+		this.frontierButton = this.addRenderableWidget(Button.builder(Component.literal("Frontiers: Edit"), b -> {
+			if (!FrontierClient.canEdit()) return;
+			if (!this.frontierEditor.active() && this.draw.active()) this.draw.stop();
+			if (!this.frontierEditor.active()) this.opacEditing = false;
+			this.cancelClaimSelection();
+			this.frontierEditor.toggle();
+			this.menu = null;
+		}).size(88, BAR).build());
+		this.placeHeaderButtons();
 		this.export = this.addRenderableWidget(Button.builder(Component.empty(), b -> {
 			this.menu = null;
 			this.minecraft.gui.setScreen(new ExportScreen(this, this.centerU, this.centerV, this.zoom, this.layer, this.width, this.height));
@@ -281,11 +326,105 @@ public final class MapScreen extends Screen {
 		}).size(18, 14).createNarration(n -> Component.translatable("diorama.map.slice_down")).build());
 		this.drawButton = this.addRenderableWidget(Button.builder(Component.empty(), b -> {
 			this.menu = null;
+			if (!this.draw.active()) {
+				this.frontierEditor.stop();
+				this.opacEditing = false;
+			}
 			this.draw.toggle();
 		}).size(20, 20).createNarration(n -> Component.translatable("diorama.draw.button")).build());
+		this.frontierNewButton = this.addRenderableWidget(Button.builder(Component.literal("New"), b ->
+			this.frontierEditor.newFrontier(this.dimension())).size(44, 20).build());
+		this.frontierAddButton = this.addRenderableWidget(Button.builder(Component.literal("Add Point"), b ->
+			this.frontierEditor.addPoint()).size(72, 20).build());
+		this.frontierRenameButton = this.addRenderableWidget(Button.builder(Component.literal("Rename"), b -> {
+			Frontier draft = this.frontierEditor.draft();
+			if (draft != null && draft.valid()) this.minecraft.gui.setScreen(new FrontierEditScreen(this, draft, null));
+		}).size(58, 20).build());
+		this.frontierDeleteButton = this.addRenderableWidget(Button.builder(Component.literal("Delete"), b -> {
+			if (this.frontierEditor.draft() != null) {
+				this.menu = new MapMenu(List.of(
+					MapMenu.Item.confirmed(Component.literal("Delete global frontier"),
+						Component.translatable("diorama.menu.delete_confirm"), () -> this.frontierEditor.delete())),
+					this.font, b.getX(), b.getY(), this.width, this.height);
+			}
+		}).size(54, 20).build());
+		this.frontierSaveButton = this.addRenderableWidget(Button.builder(Component.literal("Save"), b -> this.saveFrontierDraft()).size(48, 20).build());
+		this.frontierCancelButton = this.addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> this.frontierEditor.cancel()).size(52, 20).build());
+		this.opacToolButton = this.addRenderableWidget(Button.builder(Component.literal("Tool: Claims"), b -> {
+			this.opacForceloadTool = !this.opacForceloadTool;
+			this.cancelClaimSelection();
+		}).size(116, 20).build());
 		this.draw.init(this.font, this::addRenderableWidget, this::setFocused, (x, y) -> this.spotAt(x, y, false).thenApply(MapLevel.Spot::pos),
 			(u, v) -> this.spotAtMap(u, v, false).thenApply(MapLevel.Spot::pos), this::dimension);
 		this.placeControls();
+		this.placeFrontierControls();
+		this.placeOpacControls();
+	}
+
+	private void placeHeaderButtons() {
+		this.opacMenuButton.visible = OpacClaims.installedOnClient();
+		this.opacMenuButton.active = this.minecraft.level != null;
+		this.opacEditButton.visible = OpacClaims.installedOnClient();
+		this.opacEditButton.active = OpacClaims.available(this.minecraft) && this.otherDimension == null;
+		if (!this.opacEditButton.active && this.opacEditing) {
+			this.opacEditing = false;
+			this.opacForceloadTool = false;
+			this.cancelClaimSelection();
+		}
+		this.opacEditButton.setMessage(Component.literal(this.opacEditing ? "OPAC: Done" : "OPAC: Edit"));
+		if (this.opacToolButton != null) this.placeOpacControls();
+		this.frontierButton.visible = FrontierClient.available();
+		this.frontierButton.active = FrontierClient.canEdit();
+		this.frontierButton.setMessage(Component.literal(this.frontierEditor.active() ? "Frontiers: Done" : "Frontiers: Edit"));
+		int right = this.width;
+		for (Button button : List.of(this.settingsButton, this.waypointsButton, this.mapsButton, this.claimsButton, this.opacMenuButton, this.opacEditButton, this.frontierButton)) {
+			if (button.visible) {
+				right -= button.getWidth();
+				button.setPosition(right, 0);
+				right -= 2;
+			}
+		}
+	}
+
+	/** Compact toolbar appears only while OPAC editing is active. */
+	private void placeOpacControls() {
+		boolean shown = this.opacEditing && OpacClaims.available(this.minecraft)
+			&& this.otherDimension == null;
+		this.opacToolButton.visible = shown;
+		this.opacToolButton.setPosition(this.width / 2 - this.opacToolButton.getWidth() / 2,
+			this.height - BOTTOM_BAR - 24);
+		this.opacToolButton.setMessage(Component.literal(this.opacForceloadTool
+			? "Tool: Forceload" : "Tool: Claims"));
+	}
+
+	private void placeFrontierControls() {
+		boolean show = this.frontierEditor.active() && FrontierClient.canEdit();
+		int x = Math.max(4, this.width / 2 - 174);
+		int y = this.height - BOTTOM_BAR - 24;
+		for (Button button : List.of(this.frontierNewButton, this.frontierAddButton,
+			this.frontierRenameButton, this.frontierDeleteButton, this.frontierSaveButton, this.frontierCancelButton)) {
+			button.visible = show;
+			button.setPosition(x, y);
+			x += button.getWidth() + 3;
+		}
+		Frontier draft = this.frontierEditor.draft();
+		this.frontierAddButton.active = show && draft != null;
+		this.frontierRenameButton.active = show && draft != null && draft.valid();
+		this.frontierDeleteButton.active = show && draft != null;
+		this.frontierSaveButton.active = show && draft != null && draft.valid();
+		this.frontierAddButton.setMessage(Component.literal(this.frontierEditor.adding() ? "Stop Points" : "Add Point"));
+	}
+
+	private void saveFrontierDraft() {
+		Frontier draft = this.frontierEditor.draft();
+		if (draft == null || !draft.valid()) return;
+		boolean exists = FrontierClient.all().stream().anyMatch(f -> f.id.equals(draft.id));
+		if (exists) {
+			if (!this.frontierEditor.saved()) this.showClaimFeedback(Component.literal("Could not submit global frontier"), true, false);
+		} else {
+			this.frontierEditor.cancel();
+			this.minecraft.gui.setScreen(new FrontierEditScreen(this, draft, null));
+		}
 	}
 
 	/** The dimensions to step through: the player's, and every other with a saved map. */
@@ -324,6 +463,9 @@ public final class MapScreen extends Screen {
 
 	/** The map now shows another dimension, or the player's own again. */
 	private void viewChanged() {
+		this.frontierEditor.leaveDimension();
+		this.opacEditing = false;
+		this.opacForceloadTool = false;
 		this.menu = null;
 		this.gauge.cancel();
 		this.following = true;
@@ -437,6 +579,8 @@ public final class MapScreen extends Screen {
 	}
 
 	private void placeControls() {
+		this.placeFrontierControls();
+		this.placeOpacControls();
 		boolean caves = this.layer != TileKey.SURFACE;
 		int x = this.width - (caves ? 56 : 26);
 		int y = this.height - 90;
@@ -486,6 +630,8 @@ public final class MapScreen extends Screen {
 		// The map can open before a server names its world, and the list of maps is the world's.
 		this.mapsButton.active = Maps.get() != null;
 		this.claimsButton.active = this.otherDimension == null;
+		this.placeHeaderButtons();
+		if (!FrontierClient.canEdit() && this.frontierEditor.active()) this.frontierEditor.stop();
 		MapSession session = MapSession.get();
 		Entity viewer = MapSession.viewer();
 		if (session == null || viewer == null) {
@@ -524,6 +670,7 @@ public final class MapScreen extends Screen {
 			this.worldBorder.draw(graphics, this.font, view, this.minecraft.level, viewer);
 		}
 		MapAnnotations.draw(graphics, view, this.dimension(), true);
+		this.frontierEditor.draw(graphics, view);
 		DrawingStore drawings = DrawingStore.get();
 		if (drawings != null && (this.draw.active() || Settings.get().drawings != Settings.DrawingsShown.OFF)) {
 			this.draw.drawMap(graphics, this.font, view, drawings.in(this.dimension()), mouseX, mouseY, !this.overControls(mouseX, mouseY));
@@ -614,9 +761,11 @@ public final class MapScreen extends Screen {
 			BlockPos to = this.roughSpot(this.claimEndX, this.claimEndY);
 			boolean tooFar = (from != null && OpacClaims.outsideClaimDistance(this.minecraft, from.getX() >> 4, from.getZ() >> 4))
 				|| (to != null && OpacClaims.outsideClaimDistance(this.minecraft, to.getX() >> 4, to.getZ() >> 4));
-			int color = tooFar ? 0x77FF3C3C : this.claimRemoving ? 0x55FF6666 : 0x5566DD88;
+			int color = tooFar ? 0x77FF3C3C : this.claimForceloadSelecting
+				? (this.claimRemoving ? 0x77FF9764 : 0x777EBEFF)
+				: this.claimRemoving ? 0x55FF6666 : 0x5566DD88;
 			if(from!=null&&to!=null)this.drawClaimChunks(graphics,view,Math.min(from.getX()>>4,to.getX()>>4),Math.min(from.getZ()>>4,to.getZ()>>4),Math.max(from.getX()>>4,to.getX()>>4),Math.max(from.getZ()>>4,to.getZ()>>4),color);
-		}else if(!this.draw.active()&&this.otherDimension==null&&DrawMode.shiftDown()&&OpacClaims.available(this.minecraft)&&mouseY>BAR&&mouseY<this.height-BOTTOM_BAR){
+		}else if(!this.draw.active()&&this.otherDimension==null&&(this.opacEditing||DrawMode.shiftDown())&&OpacClaims.available(this.minecraft)&&mouseY>BAR&&mouseY<this.height-BOTTOM_BAR){
 			BlockPos at=this.roughSpot(mouseX,mouseY);
 			if(at!=null){int cx=at.getX()>>4,cz=at.getZ()>>4;this.drawClaimChunks(graphics,view,cx,cz,cx,cz,OpacClaims.outsideClaimDistance(this.minecraft,cx,cz)?0x77FF3C3C:0x5566DD88);}
 		}
@@ -633,14 +782,25 @@ public final class MapScreen extends Screen {
 			boolean tooFar = current != null && OpacClaims.outsideClaimDistance(this.minecraft,
 				current.getX() >> 4, current.getZ() >> 4);
 			help = tooFar ? "OPAC: Outside claimable range · Esc to cancel"
-				: "OPAC: " + (this.claimRemoving ? "Unclaim" : "Claim") + " area · Release to submit · Esc to cancel";
-		} else if (!this.draw.active() && this.otherDimension == null && DrawMode.shiftDown()
+				: "OPAC: " + (this.claimForceloadSelecting
+					? (this.claimRemoving ? "Unmark for forceload" : "Mark for forceload")
+					: (this.claimRemoving ? "Unclaim" : "Claim"))
+					+ " area · Release to submit · Esc to cancel";
+		} else if (!this.draw.active() && this.otherDimension == null && (this.opacEditing || DrawMode.shiftDown())
 			&& OpacClaims.available(this.minecraft)) {
 			BlockPos current = this.roughSpot(mouseX, mouseY);
 			boolean tooFar = current != null && OpacClaims.outsideClaimDistance(this.minecraft,
 				current.getX() >> 4, current.getZ() >> 4);
 			help = tooFar ? "OPAC: Outside claimable range"
-				: "OPAC: Shift+left drag to claim · Shift+right drag to unclaim · Esc cancels";
+				: this.opacEditing
+					? (this.opacForceloadTool
+						? "OPAC Forceload: left drag to mark · right drag to unmark · striped chunks are marked"
+						: "OPAC Edit: left drag to claim · right drag to unclaim · OPAC checks permissions")
+					: "OPAC: Shift+left drag to claim · Shift+right drag to unclaim · Esc cancels";
+		} else if (this.frontierEditor.active()) {
+			help = "Global frontiers: " + (this.frontierEditor.adding()
+				? "Click to add vertices · Save to publish"
+				: "Click a frontier to select · Drag its vertices · Add Point to extend");
 		} else {
 			help = (this.draw.active() ? this.draw.help() : HELP).getString();
 		}
@@ -765,7 +925,7 @@ public final class MapScreen extends Screen {
 	/** Where the buttons at the top right start: the status line has to end before them. */
 	private int buttonsStart() {
 		int start = this.width;
-		for (Button button : List.of(this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton)) {
+		for (Button button : List.of(this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton, this.frontierButton)) {
 			if (button.visible) {
 				start = Math.min(start, button.getX());
 			}
@@ -893,11 +1053,15 @@ public final class MapScreen extends Screen {
 		this.pressX = x;
 		this.pressY = y;
 		this.dragged = false;
-		if (!this.draw.active() && this.otherDimension == null && DrawMode.shiftDown()
+		if (this.frontierEditor.active() && this.lastView != null
+			&& this.frontierEditor.press(this.lastView, x, y, button)) return true;
+		if (!this.frontierEditor.active() && !this.draw.active() && this.otherDimension == null
+			&& (this.opacEditing || DrawMode.shiftDown())
 			&& (button == InputConstants.MOUSE_BUTTON_LEFT || button == InputConstants.MOUSE_BUTTON_RIGHT)
 			&& OpacClaims.available(this.minecraft)) {
 			this.claimSelecting = true;
 			this.claimRemoving = button == InputConstants.MOUSE_BUTTON_RIGHT;
+			this.claimForceloadSelecting = this.opacEditing && this.opacForceloadTool;
 			this.claimEndX = x;
 			this.claimEndY = y;
 			return true;
@@ -931,8 +1095,9 @@ public final class MapScreen extends Screen {
 				return true;
 			}
 			boolean remove = this.claimRemoving;
+			boolean forceload = this.claimForceloadSelecting;
 			this.cancelClaimSelection();
-			this.claimSelection(this.pressX, this.pressY, x, y, remove);
+			this.claimSelection(this.pressX, this.pressY, x, y, remove, forceload);
 			return true;
 		}
 		// Only the release of the latest press counts: letting go of a button held since before
@@ -949,6 +1114,8 @@ public final class MapScreen extends Screen {
 			}
 			return true;
 		}
+		if (this.frontierEditor.active() && !this.pressOnControl && this.lastView != null
+			&& this.frontierEditor.release(this.lastView, this.dimension(), x, y, button, moved)) return true;
 		if (this.draw.active() && !this.pressOnControl && this.lastView != null
 			&& this.draw.release(this.lastView, this.font, this.dimension(), x, y, button, moved)) {
 			return true;
@@ -1022,6 +1189,7 @@ public final class MapScreen extends Screen {
 		}
 		this.claimSelecting = false;
 		this.claimRemoving = false;
+		this.claimForceloadSelecting = false;
 	}
 
 	/**
@@ -1040,7 +1208,7 @@ public final class MapScreen extends Screen {
 	}
 
 	private void drawClaimableRange(GuiGraphicsExtractor graphics, MapViewport.View view) {
-		if (!(this.claimSelecting || DrawMode.shiftDown()) || this.otherDimension != null) {
+		if (!(this.claimSelecting || this.opacEditing || DrawMode.shiftDown()) || this.otherDimension != null) {
 			return;
 		}
 		int range = OpacClaims.maxClaimDistance(this.minecraft);
@@ -1077,7 +1245,7 @@ public final class MapScreen extends Screen {
 	}
 
 	/** Claim exactly the flat chunk rectangles previewed by the drag highlight. */
-	private void claimSelection(double fromX, double fromY, double toX, double toY, boolean remove) {
+	private void claimSelection(double fromX, double fromY, double toX, double toY, boolean remove, boolean forceload) {
 		BlockPos from = this.roughSpot(fromX, fromY);
 		BlockPos to = this.roughSpot(toX, toY);
 		if (from == null || to == null || this.minecraft.level == null) return;
@@ -1089,7 +1257,9 @@ public final class MapScreen extends Screen {
 			return;
 		}
 		OpacClaims.requestArea(this.minecraft, x0, z0, x1, z1,
-			remove ? OpacClaims.Action.UNCLAIM : OpacClaims.Action.CLAIM);
+			forceload
+				? (remove ? OpacClaims.Action.UNFORCELOAD : OpacClaims.Action.FORCELOAD)
+				: (remove ? OpacClaims.Action.UNCLAIM : OpacClaims.Action.CLAIM));
 	}
 
 	/** Opens the menu for what's under a screen point: a waypoint's, or the spot's. */
@@ -1098,6 +1268,39 @@ public final class MapScreen extends Screen {
 		if (pin != null) {
 			this.menu = new MapMenu(this.waypointItems(pin.waypoint()), this.font, screenX, screenY, this.width, this.height);
 			return;
+		}
+		// Frontiers use world coordinates rather than the projected drawing coordinates.
+		// Check the territory and an existing area before opening the regular map menu.
+		boolean editingAllowed = FrontierClient.canEdit();
+		MapViewport.View view = this.lastView;
+		if (editingAllowed && view != null && !this.draw.active() && !this.frontierEditor.active()) {
+			double u = view.centerU() + (screenX - view.x() - view.width() / 2.0) / view.zoom();
+			double v = view.centerV() + (screenY - view.y() - view.height() / 2.0) / view.zoom();
+			double z = Projection.zAt(v, 64);
+			Frontier frontier = FrontierClient.at(this.dimension(),
+				Projection.facing().worldX(u, z), Projection.facing().worldZ(u, z));
+			if (frontier != null) {
+				this.menu = new MapMenu(List.of(
+					MapMenu.Item.title(Component.literal(frontier.name)),
+					MapMenu.Item.action(Component.literal("Edit frontier"), true, () ->
+						this.minecraft.gui.setScreen(new FrontierEditScreen(this, frontier, null))),
+					MapMenu.Item.confirmed(Component.literal("Delete frontier"),
+						Component.translatable("diorama.menu.delete_confirm"), () -> FrontierClient.remove(frontier.id))
+				), this.font, screenX, screenY, this.width, this.height);
+				return;
+			}
+			DrawingStore drawn = DrawingStore.get();
+			if (drawn != null && Settings.get().drawings != Settings.DrawingsShown.OFF) {
+				Drawing area = DrawingOverlay.under(this.font, view, drawn.in(this.dimension()), screenX, screenY, false);
+				if (area != null && area.kind == Drawing.Kind.AREA && area.complete()) {
+					this.menu = new MapMenu(List.of(
+						MapMenu.Item.title(Component.literal("Map area")),
+						MapMenu.Item.action(Component.literal("Convert to named frontier"), true, () ->
+							this.minecraft.gui.setScreen(new FrontierEditScreen(this, FrontierProjection.fromDrawing(area), area)))
+					), this.font, screenX, screenY, this.width, this.height);
+					return;
+				}
+			}
 		}
 		CompletableFuture<MapLevel.Spot> spot = this.spotAt(screenX, screenY, true);
 		BlockPos rough = this.roughSpot(screenX, screenY);
@@ -1345,6 +1548,8 @@ public final class MapScreen extends Screen {
 		if (this.pressOnControl) {
 			return false;
 		}
+		if (this.frontierEditor.active() && this.lastView != null
+			&& this.frontierEditor.drag(this.lastView, x, y)) return true;
 		if (this.claimSelecting) {
 			this.claimEndX = x;
 			this.claimEndY = y;
@@ -1400,6 +1605,10 @@ public final class MapScreen extends Screen {
 
 	/** A key press, and whether it is bound to the waypoint list or the map; false leaves it to the screen. */
 	private boolean keyDown(int key, boolean waypointListKey, boolean mapKey, boolean dimensionKey) {
+		if (key == InputConstants.KEY_ESCAPE && this.frontierEditor.active()) {
+			this.frontierEditor.stop();
+			return true;
+		}
 		if (key == InputConstants.KEY_ESCAPE && this.claimSelecting) {
 			this.cancelClaimSelection();
 			return true;
@@ -1709,7 +1918,7 @@ public final class MapScreen extends Screen {
 
 	/** Whether a point is on a shown button, whether or not it can be pressed right now. */
 	private boolean onButton(double x, double y) {
-		for (AbstractWidget widget : new AbstractWidget[] {this.facingButton, this.dimensionButton, this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton, this.export, this.zoomIn, this.zoomOut, this.recenter, this.sliceUp, this.sliceDown, this.drawButton}) {
+		for (AbstractWidget widget : new AbstractWidget[] {this.facingButton, this.dimensionButton, this.mapsButton, this.waypointsButton, this.settingsButton, this.claimsButton, this.opacMenuButton, this.opacEditButton, this.opacToolButton, this.frontierButton, this.frontierNewButton, this.frontierAddButton, this.frontierRenameButton, this.frontierDeleteButton, this.frontierSaveButton, this.frontierCancelButton, this.export, this.zoomIn, this.zoomOut, this.recenter, this.sliceUp, this.sliceDown, this.drawButton}) {
 			if (on(widget, x, y)) {
 				return true;
 			}

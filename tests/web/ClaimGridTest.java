@@ -80,7 +80,18 @@ public final class ClaimGridTest {
     check(pixel(shape,24,24) == 0, "An L-shaped claim must not fill its unclaimed bounding-box corner");
     check(pixel(shape,15.875,8) >>> 24 == ClaimPaint.FILL_ALPHA, "Adjacent chunks of the same claim share an uninterrupted fill");
     Claims.Snapshot forced = new Claims.Snapshot((x,z) -> z == 0 && x == 0 ? OWN : z == 0 && x == 1 ? LOADED : null);
-    check(pixel(forced,24,8) >>> 24 == ClaimPaint.FORCE_LOADED_ALPHA, "Forceload fill must remain distinct");
+    // Marked claims have both a stronger base fill and anchored diagonal hatching.
+    // An arbitrary interior sample can land on either; test both colours are visible.
+    int sample = pixel(forced,24,8) >>> 24;
+    check(sample == ClaimPaint.FORCE_LOADED_ALPHA || sample == ClaimPaint.FORCE_HATCH_ALPHA,
+      "Forceload fill must remain distinct");
+    boolean baseSeen = false, hatchSeen = false;
+    for (int x = 18; x <= 29; x += 2) for (int z = 2; z <= 13; z += 2) {
+      int alpha = pixel(forced, x, z) >>> 24;
+      baseSeen |= alpha == ClaimPaint.FORCE_LOADED_ALPHA;
+      hatchSeen |= alpha == ClaimPaint.FORCE_HATCH_ALPHA;
+    }
+    check(baseSeen && hatchSeen, "Forceload markings must include both tint and visible hatching");
     check(pixel(forced,15.875,8) >>> 24 == ClaimPaint.EDGE_ALPHA, "Forceload boundary must remain visible");
   }
 
