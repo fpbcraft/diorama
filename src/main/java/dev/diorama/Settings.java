@@ -87,6 +87,8 @@ public final class Settings {
 	public boolean coordinates = true;
 	public boolean biome = true;
 	public GameTime gameTime = GameTime.OFF;
+	public boolean minimapFrontierName = true;
+	public boolean minimapClaimName = true;
 	/**
 	 * How big the compass letters and the lines under the minimap are, in percent of the game's own
 	 * text: {@link #MIN_TEXT_SIZE} to {@link #MAX_TEXT_SIZE}. {@code TextSize.scale} rounds it to
@@ -226,6 +228,8 @@ public final class Settings {
 	public ClaimsShown claims = ClaimsShown.ALWAYS;
 	/** Last non-OFF claims setting; used by the FPBCraft fullscreen map quick toggle. */
 	public ClaimsShown claimsWhenEnabled = ClaimsShown.ALWAYS;
+	public FrontiersShown frontiers = FrontiersShown.ALWAYS;
+	public FrontiersShown frontiersWhenEnabled = FrontiersShown.ALWAYS;
 
 	/**
 	 * The map in a browser, for a second screen ({@link dev.diorama.web.ClientWebMap}): off, for
@@ -246,6 +250,13 @@ public final class Settings {
 
 	/** Where land claims show: nowhere, on the fullscreen map, or on the minimap too. */
 	public enum ClaimsShown {
+		OFF,
+		FULLSCREEN,
+		ALWAYS
+	}
+
+	/** Where the server's global frontier overlay shows. */
+	public enum FrontiersShown {
 		OFF,
 		FULLSCREEN,
 		ALWAYS
@@ -514,6 +525,12 @@ public final class Settings {
 		}
 		if (settings.claimsWhenEnabled == null || settings.claimsWhenEnabled == ClaimsShown.OFF) {
 			settings.claimsWhenEnabled = ClaimsShown.ALWAYS;
+		}
+		if (settings.frontiers == null) {
+			settings.frontiers = FrontiersShown.ALWAYS;
+		}
+		if (settings.frontiersWhenEnabled == null || settings.frontiersWhenEnabled == FrontiersShown.OFF) {
+			settings.frontiersWhenEnabled = FrontiersShown.ALWAYS;
 		}
 		if (settings.drawings == null) {
 			settings.drawings = DrawingsShown.ALWAYS;

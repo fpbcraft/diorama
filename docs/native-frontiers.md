@@ -24,34 +24,33 @@ permissions managed and enforced by the Open Parties and Claims mod.
 ## Map editor
 
 1. Open the map with `M`.
-2. Toggle **Frontiers: Edit** in the existing compact top-right button row.
-   This button is only enabled when the server grants operator permissions.
-3. Choose **New**, then click map positions to add polygon vertices.
-4. Click **Save** when the polygon contains at least three vertices. A small
-   editor lets you name it and pick its colour. The server confirms and
-   broadcasts the new territory to everyone.
-5. Click an existing frontier while in editing mode to select it. Drag a
-   square vertex handle to move it, or toggle **Add Point** to append vertices.
-   Press **Save** to submit changes.
-6. **Rename** opens the name/colour editor; **Delete** confirms before
-   submitting the removal; **Cancel** discards the uncommitted edit.
-7. Toggle **Frontiers: Done** to leave frontier editing.
+2. Choose **Edit global frontiers** in the right-side toolbar. This button
+   requires server operator permissions.
+3. Choose **New frontier**, then click map positions to add polygon vertices.
+   **Save** opens the name and colour editor once the polygon has at least
+   three vertices. Set the colour with the RGB sliders or the hex field.
+   **Use held banner** copies a banner from the main hand.
+4. Select an existing frontier to edit it. Drag a vertex handle to move it,
+   or choose **Add Point** and click an edge to insert a vertex.
+5. Use the contextual toolbar or the frontier edit right-click menu to
+   rename, save, discard or delete a draft. On an existing area drawing,
+   the frontier edit menu can convert it to a global frontier. The original
+   drawing is removed after the server acknowledges the conversion.
 
-Existing Diorama Draw → Area polygons can also be converted using the
-right-click context menu **only for operators**. The original personal
-drawing is removed only after the server acknowledges the new global frontier.
-
-Frontier names and outlines are always displayed to players in the relevant
-dimension. Editing nodes and the editing toolbar appear only for authorized
-operators in the corresponding edit mode. View coordinates are stored as
-world X/Z, not map-camera coordinates, so map rotation does not alter boundaries.
+The **Territory Directory** lists global frontiers and known OPAC regions.
+Select a result to centre the map there. **Settings → Overlays → Frontiers**
+controls shape visibility, and **Minimap Info** controls the frontier and
+claim names under the minimap. Labels are drawn inside shapes when there is
+room at the current zoom. Boundaries are stored as world X/Z coordinates
+and stay in place as the camera turns.
 
 ## Protocol and limits
 
 - Separate versioned frontier messages reuse Diorama's optional share play
   channel, but do not depend on the shared terrain feature being enabled.
-- Full snapshots send a begin frame, one frame per territory, and an end frame.
-  Subsequent authorized changes are broadcast as revisioned deltas.
+- Full snapshots send a begin frame, a frame per territory, optional banner
+  frames, and an end frame. Authorized changes are broadcast as revisioned
+  deltas with banner updates as needed.
 - Stale edit requests trigger a fresh server snapshot rather than silently
   overwriting another operator's update.
 - Maximum **512 global frontiers** per world, each containing **3–256**
@@ -62,14 +61,8 @@ world X/Z, not map-camera coordinates, so map rotation does not alter boundaries
 
 ## Roadmap
 
-- Refine vertex insertion, polygon validation (intersections), labels and
-  visibility settings without changing the server-authority model.
-- Add optional admin lists, search, collection/group organization and
-  visibility overrides.
-- Add separate OPAC region edit mode in its own stacked PR. OPAC's existing
-  client requests are validated by OPAC on the server, not by the frontier
-  JSON store.
-- Add optional imports from existing MapFrontiers data.
+- Add collections and optional imports from existing MapFrontiers data.
+- Improve validation of intersecting polygons.
 
 ## Validation
 
@@ -94,8 +87,9 @@ The approved web layout puts icon-only Frontiers (flag), OPAC claims (shield,
 when Player History is installed), Vehicles (boat), and Trains buttons in a
 compact vertical strip below settings. Mint indicates enabled. Tooltips and
 accessible names identify the buttons; keyboard activation and focus are
-supported. Other settings remain in the menu. This follows the user-approved
-web mockup; the in-game Xaero-style claim controls are unchanged.
+supported. Other settings remain in the menu. Hovering shows territory names
+and their colour swatches. With Player History #102, OPAC claims also show the
+owner when it differs from the displayed name.
 
 Deploy the updated core and, when installed, the matching `diorama-web` asset
 addon. Player History's matching layer-controls change also hides vehicle and

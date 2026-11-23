@@ -38,6 +38,11 @@
 	.where { position: fixed; left: 64px; bottom: var(--map-bottom);box-sizing:border-box;height:44px;max-width:calc(100vw - 260px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding: 12px 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 	.map-empty { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; color: #334155; padding: 24px; text-align: center; }
 	button:focus-visible { outline: 2px solid #7aa7ff; outline-offset: -2px; }
+    .territory-tooltip {position:fixed;pointer-events:none;z-index:55;padding:6px 9px;white-space:pre-line;overflow-wrap:anywhere;max-width:min(240px,calc(100vw - 12px));}
+    .territory-hover-entry {display:flex;align-items:start;gap:7px;}
+    .territory-hover-entry + .territory-hover-entry {margin-top:5px;}
+    .territory-hover-entry small {display:block;color:#b0bcc9;}
+    .territory-swatch {display:block;flex:none;width:9px;height:9px;margin-top:3px;border:1px solid #ffffff6b;}
     .map-tools {position:fixed;top:var(--map-top);right:12px;display:flex;align-items:start;gap:8px;z-index:60;}
     .map-layer-toolbar {position:absolute;right:0;top:calc(var(--map-control-height) + 10px);display:flex;flex-direction:column;gap:2px;padding:3px;max-height:calc(100dvh - var(--map-top) - var(--map-control-height) - 124px);overflow-y:auto;}
     .map-layer-toolbar button {flex:none;display:grid;place-items:center;width:38px;height:38px;padding:0;border:1px solid transparent;border-radius:7px;color:var(--muted);}
@@ -495,7 +500,7 @@ function drawPlayer(x, y, dpr) {
 // Panning and zooming, by mouse, wheel, touch and keys.
 const pointers = new Map();
 let last = null;
-canvas.addEventListener("pointerdown", e => { extensionApi.changed("interaction"); canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, e); canvas.classList.add("dragging"); last = gesture(); });
+canvas.addEventListener("pointerdown", e => { extensionApi.pointer(e); extensionApi.changed("interaction"); canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, e); canvas.classList.add("dragging"); last = gesture(); });
 canvas.addEventListener("pointermove", e => {
 	extensionApi.pointer(e);
 	showWhere(e);

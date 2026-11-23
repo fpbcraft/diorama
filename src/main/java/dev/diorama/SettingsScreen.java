@@ -54,6 +54,7 @@ public final class SettingsScreen extends Screen {
 	private static final Identifier LIST_BACKGROUND = Identifier.withDefaultNamespace("textures/gui/inworld_menu_list_background.png");
 
 	private final @Nullable Screen parent;
+	private final boolean minimapInfoOnly;
 	private final TabManager tabManager = new TabManager(this::addRenderableWidget, this::removeWidget);
 	private final MinimapHud preview = new MinimapHud();
 	private @Nullable TabNavigationBar tabBar;
@@ -65,8 +66,13 @@ public final class SettingsScreen extends Screen {
 	private boolean gpuFailedShown;
 
 	public SettingsScreen(@Nullable Screen parent) {
-		super(Component.translatable("diorama.settings.title"));
+		this(parent, false);
+	}
+
+	private SettingsScreen(@Nullable Screen parent, boolean minimapInfoOnly) {
+		super(Component.translatable(minimapInfoOnly ? "diorama.settings.info_lines" : "diorama.settings.title"));
 		this.parent = parent;
+		this.minimapInfoOnly = minimapInfoOnly;
 	}
 
 	@Override
@@ -77,18 +83,26 @@ public final class SettingsScreen extends Screen {
 		int selected = current == null ? 0 : Math.max(0, this.tabs.indexOf(current));
 		this.side = Math.max(Math.min(SIDE, this.width - PREVIEW_ROOM), Math.min(this.width, CONTENT + 10));
 
+		if (this.minimapInfoOnly) {
+			SettingsTab info = new SettingsTab("diorama.settings.info_lines");
+			info.toggle("coordinates", () -> s.coordinates, v -> s.coordinates = v);
+			info.toggle("biome", () -> s.biome, v -> s.biome = v);
+			info.toggle("frontier_name", () -> s.minimapFrontierName, v -> s.minimapFrontierName = v);
+			info.toggle("claim_name", () -> s.minimapClaimName, v -> s.minimapClaimName = v);
+			info.choice("game_time", Settings.GameTime.values(), () -> s.gameTime, v -> s.gameTime = v);
+			this.showTabs(0, info);
+			return;
+		}
+
 		SettingsTab minimap = new SettingsTab("diorama.settings.minimap");
 		minimap.toggle("minimap_shown", () -> s.minimap, v -> s.minimap = v);
 		minimap.toggle("compass", () -> s.compass, v -> s.compass = v);
-		minimap.toggle("coordinates", () -> s.coordinates, v -> s.coordinates = v);
-		minimap.toggle("biome", () -> s.biome, v -> s.biome = v);
 		minimap.toggle("auto_caves", () -> s.autoCaves, v -> s.autoCaves = v, ServerRules.caveMapsAllowed() ? null : false);
 		minimap.toggle("prefer_surface", () -> s.preferSurface, v -> s.preferSurface = v);
 		minimap.toggle("legible_caves", () -> s.legibleCaves, v -> s.legibleCaves = v);
 		minimap.toggle("enlarge_toggle", () -> s.minimapEnlargeToggle, v -> s.minimapEnlargeToggle = v);
 		minimap.open("position", MinimapPositionScreen.placeName(), () -> this.minecraft.gui.setScreen(new MinimapPositionScreen(this)));
-		minimap.choice("game_time", Settings.GameTime.values(), () -> s.gameTime, v -> s.gameTime = v);
-		// Beside Position, so the tab doesn't grow.
+		minimap.open("info_lines", null, () -> this.minecraft.gui.setScreen(new SettingsScreen(this, true)));
 		minimap.lastTwoSideBySide();
 		int sizes = (Settings.MAX_SIZE - Settings.MIN_SIZE) / Settings.SIZE_STEP + 1;
 		minimap.slider("size", (s.minimapSize - Settings.MIN_SIZE) / Settings.SIZE_STEP, sizes,
@@ -147,8 +161,10 @@ public final class SettingsScreen extends Screen {
 		Settings.SpawnSpots[] spots = Settings.SpawnSpots.values();
 		overlays.cycle("spawn_spots", () -> s.spawnSpots.ordinal(), spots.length, i -> s.spawnSpots = spots[i],
 			i -> Component.translatable("diorama.settings.spawn_spots." + spots[i].name().toLowerCase(Locale.ROOT)));
+		overlays.choice("frontiers", Settings.FrontiersShown.values(), () -> s.frontiers, v -> s.frontiers = v);
 		if (Claims.supported()) {
 			overlays.choice("claims", Settings.ClaimsShown.values(), () -> s.claims, v -> s.claims = v);
+			overlays.lastTwoSideBySide();
 		}
 		overlays.choice("drawings", Settings.DrawingsShown.values(), () -> s.drawings, v -> s.drawings = v);
 		// The map in a browser; beside Drawings, so the tab doesn't grow.
@@ -223,18 +239,22 @@ public final class SettingsScreen extends Screen {
 
 		// Vanilla's tab bar, over the settings side instead of the whole screen. It's drawn by hand
 		// (extractRenderState), clipped to the side: its separator line runs on past the last tab.
+		this.showTabs(selected, minimap, radar, overlays, waypoints, look);
+	}
+
+	private void showTabs(int selected, SettingsTab... tabs) {
 		//? if >=26.2 {
-		MenuTabBar bar = MenuTabBar.builder(this.tabManager, this.side).addTabs(minimap, radar, overlays, waypoints, look).build();
+		MenuTabBar bar = MenuTabBar.builder(this.tabManager, this.side).addTabs(tabs).build();
 		bar.arrangeElements(this.side);
 		//?} else if >=26.1 {
-		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(minimap, radar, overlays, waypoints, look).build();
+		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(tabs).build();
 		bar.updateWidth(this.side);
 		*///?} else {
-		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(minimap, radar, overlays, waypoints, look).build();
+		/*TabNavigationBar bar = TabNavigationBar.builder(this.tabManager, this.side).addTabs(tabs).build();
 		bar.setWidth(this.side);
 		bar.arrangeElements();
 		*///?}
-		this.tabs = List.of(minimap, radar, overlays, waypoints, look);
+		this.tabs = List.of(tabs);
 		this.tabBar = this.addWidget(bar);
 		this.addRenderableWidget(Button.builder(Component.translatable("gui.done"), b -> this.onClose())
 			.bounds(this.side / 2 - 100, this.height - 26, 200, 20).build());
@@ -335,9 +355,9 @@ public final class SettingsScreen extends Screen {
 		}
 
 		/** A button showing the setting's value that opens a screen to change it. */
-		void open(String key, Component value, Runnable press) {
-			Component label = Component.translatable("diorama.settings." + key);
-			this.wide.add(Button.builder(label(label, value), b -> press.run()).size(CONTENT, 20).tooltip(tooltip(key)).build());
+		void open(String key, @Nullable Component value, Runnable press) {
+			Component name = Component.translatable("diorama.settings." + key);
+			this.wide.add(Button.builder(value == null ? name : label(name, value), b -> press.run()).size(CONTENT, 20).tooltip(tooltip(key)).build());
 		}
 
 		void slider(String key, int index, int count, IntConsumer set, IntFunction<Component> name) {

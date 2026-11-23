@@ -75,6 +75,7 @@ public final class OpenPartiesAndClaims {
 	private static Method username;
 	private static Method claimsName;
 	private static Method subClaimsName;
+	private static @Nullable Method partyName;
 	private static Method claimsColour;
 	private static Method subClaimsColour;
 
@@ -153,6 +154,11 @@ public final class OpenPartiesAndClaims {
 		username = info.getMethod("getPlayerUsername");
 		claimsName = info.getMethod("getClaimsName");
 		subClaimsName = info.getMethod("getClaimsName", int.class);
+		try {
+			partyName = info.getMethod("getPartyName");
+		} catch (NoSuchMethodException ignored) {
+			partyName = null;
+		}
 		claimsColour = info.getMethod("getClaimsColor");
 		subClaimsColour = info.getMethod("getClaimsColor", int.class);
 		// Told of every change from now on.
@@ -334,18 +340,18 @@ public final class OpenPartiesAndClaims {
 			try {
 				String title;
 				int rgb;
+				Object info = playerInfo.invoke(manager, this.player);
 				if (fullName != null) {
 					// Party names as Xaero's World Map shows them: not to moderators, who see owners.
 					boolean parties = !(boolean) moderatorMode.invoke(manager);
 					title = ((Component) fullName.invoke(manager, this.state, this.dimension, parties)).getString();
 					rgb = (int) colour.invoke(manager, this.state, this.dimension);
 				} else {
-					Object info = playerInfo.invoke(manager, this.player);
 					title = oldTitle(info);
 					Integer own = (Integer) subClaimsColour.invoke(info, this.sub);
 					rgb = own != null ? own : (int) claimsColour.invoke(info);
 				}
-				return Optional.of(new Claims.Claim(this, rgb & 0xFFFFFF, title, this.forceloadable, true));
+				return Optional.of(new Claims.Claim(this, rgb & 0xFFFFFF, title, this.forceloadable, true, territoryName(info, title)));
 			} catch (InvocationTargetException e) {
 				Diorama.LOGGER.debug("Open Parties and Claims couldn't give a claim's name", e);
 				return null;
@@ -353,6 +359,24 @@ public final class OpenPartiesAndClaims {
 				fail(e);
 				return null;
 			}
+		}
+
+		private String territoryName(@Nullable Object info, String fallback) throws ReflectiveOperationException {
+			if (info == null) return fallback;
+			String name = this.sub < 0 ? null : (String) subClaimsName.invoke(info, this.sub);
+			if (name == null || name.isBlank()) name = (String) claimsName.invoke(info);
+			if ((name == null || name.isBlank()) && partyName != null && partyName.invoke(info) instanceof Component party) {
+				name = party.getString();
+			}
+			if (name == null || name.isBlank()) name = (String) username.invoke(info);
+			return name == null || name.isBlank() ? fallback : name;
+		}
+
+		private record Territory(UUID player, int sub) {}
+
+		@Override
+		public Object territoryKey() {
+			return new Territory(this.player, this.sub);
 		}
 
 		/** A claim's title as older versions of Open Parties and Claims word it on entering the claim. */

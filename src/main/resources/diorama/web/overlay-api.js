@@ -40,6 +40,49 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
   canvas.style.pointerEvents = "none";
   container.append(canvas);
   const context = canvas.getContext("2d");
+  const tooltip = document.createElement("div");
+  tooltip.className = "panel territory-tooltip";
+  tooltip.hidden = true;
+  container.append(tooltip);
+  let pointer = null;
+  const updateTooltip = state => {
+    const labels = [];
+    if (pointer && state) {
+      for (const overlay of overlays.values()) {
+        const label = overlay.hover?.(pointer.x, pointer.y, state);
+        if (label) labels.push(label);
+      }
+    }
+    tooltip.hidden = labels.length === 0;
+    if (!labels.length) return;
+    tooltip.replaceChildren();
+    for (const label of labels) {
+      const row = document.createElement("div");
+      row.className = "territory-hover-entry";
+      if (typeof label === "string") {
+        row.textContent = label;
+      } else {
+        if (Number.isInteger(label.color)) {
+          const swatch = document.createElement("span");
+          swatch.className = "territory-swatch";
+          swatch.style.backgroundColor = "#" + (label.color & 0xffffff).toString(16).padStart(6, "0");
+          swatch.setAttribute("aria-hidden", "true");
+          row.append(swatch);
+        }
+        const text = document.createElement("span");
+        text.textContent = label.name;
+        if (label.owner && label.owner !== label.name) {
+          const owner = document.createElement("small");
+          owner.textContent = "Owner: " + label.owner;
+          text.append(owner);
+        }
+        row.append(text);
+      }
+      tooltip.append(row);
+    }
+    tooltip.style.left = Math.max(4, Math.min(pointer.x + 14, state.width - tooltip.offsetWidth - 4)) + "px";
+    tooltip.style.top = Math.max(4, Math.min(pointer.y + 16, state.height - tooltip.offsetHeight - 4)) + "px";
+  };
   let frame = 0;
   let disposed = false;
   const repaint = () => {
@@ -56,6 +99,7 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
       catch (error) { console.error("Diorama overlay draw failed", error); }
       finally { context.restore(); }
     }
+    updateTooltip(state);
   };
   const invalidate = () => { if (!frame && !disposed) frame = requestAnimationFrame(repaint); };
   return Object.freeze({
@@ -99,6 +143,9 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
       invalidate();
     },
     pointer(event) {
+      pointer = event.type === "pointermove" && !event.buttons && event.pointerType !== "touch"
+        ? { x: event.clientX, y: event.clientY } : null;
+      updateTooltip(getState());
       for (const overlay of [...overlays.values()].reverse()) {
         if (overlay.pointer?.(event, getState())) return true;
       }
@@ -110,6 +157,7 @@ export const createOverlayApi = ({ container, getState, navigate, setDimension, 
       for (const overlay of overlays.values()) overlay.element?.remove();
       overlays.clear();
       canvas.remove();
+      tooltip.remove();
       events.dispatchEvent(new Event("dispose"));
     },
   });

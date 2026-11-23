@@ -68,6 +68,7 @@ public final class FrontierServer {
         ShareProtocol.send(player, FrontierWire.begin(this.revision, canEdit(player)));
         for (Frontier frontier : this.store.all()) {
             ShareProtocol.send(player, FrontierWire.entry(frontier));
+            if (frontier.banner != null) ShareProtocol.send(player, FrontierWire.banner(frontier));
         }
         ShareProtocol.send(player, FrontierWire.end());
     }
@@ -95,6 +96,9 @@ public final class FrontierServer {
             }
             if (kind == FrontierWire.PUT) {
                 Frontier frontier = FrontierWire.readFrontier(in);
+                Frontier previous = active.store.byId(frontier.id);
+                boolean bannerEdited = in.available() > 0;
+                frontier.banner = bannerEdited ? FrontierWire.readBanner(in) : previous == null ? null : previous.banner;
                 FrontierWire.complete(in);
                 boolean foundDimension = false;
                 for (net.minecraft.server.level.ServerLevel level : active.server.getAllLevels()) {
@@ -113,6 +117,7 @@ public final class FrontierServer {
                 active.publish();
                 active.revision++;
                 active.broadcast(FrontierWire.changed(active.revision, frontier));
+                if (bannerEdited) active.broadcast(FrontierWire.banner(frontier));
             } else {
                 java.util.UUID id = FrontierWire.readUuid(in);
                 FrontierWire.complete(in);

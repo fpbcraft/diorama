@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 const source = await readFile(new URL("../../src/main/resources/diorama/web/overlay-api.js", import.meta.url), "utf8");
-const { projectWorld, screenPosition } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { projectWorld, screenPosition, worldAtScreen } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
 for (const facing of [0, 1, 2, 3]) for (const pitch of [15, 40, 90]) {
   test(`facing ${facing}, pitch ${pitch}, Y and negative world coordinates`, () => {
@@ -22,4 +22,16 @@ test("pan, zoom, dimensions, resize and high DPI stay in CSS pixels", () => {
   assert.deepEqual(screenPosition(point, { ...state, width: 400, height: 300, scale: 4 }), { x: 240, y: 230 });
   assert.equal(screenPosition({ ...point, dimension: "minecraft:the_nether" }, state), null);
   assert.equal(screenPosition(point, null), null);
+});
+
+test("overlay hit testing uses the projection and chosen ground height", () => {
+  const point = { x: -17, y: -60, z: 91 };
+  for (const facing of [0, 1, 2, 3]) {
+    const state = { u: 295, v: -83, scale: 2.75, width: 803, height: 427,
+      projection: { sin: 0.6, cos: 0.8, facing } };
+    const screen = screenPosition(point, state);
+    const hit = worldAtScreen(screen.x, screen.y, point.y, state);
+    close(hit.x, point.x);
+    close(hit.z, point.z);
+  }
 });

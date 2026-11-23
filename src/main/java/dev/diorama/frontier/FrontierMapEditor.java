@@ -4,8 +4,10 @@ import com.mojang.blaze3d.platform.InputConstants;
 import dev.diorama.Projection;
 import dev.diorama.drawing.Drawing;
 import dev.diorama.drawing.DrawingOverlay;
+import dev.diorama.frontier.FrontierProjection.EdgePoint;
 import dev.diorama.render.MapViewport;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -21,11 +23,14 @@ public final class FrontierMapEditor {
     private final DrawingOverlay overlay = new DrawingOverlay();
     private boolean active;
     private boolean adding;
+    private boolean newDraft;
     private int draggedVertex = -1;
     private @Nullable Frontier draft;
 
     public boolean active() { return active; }
     public boolean adding() { return adding; }
+    public boolean inserting() { return adding && !newDraft; }
+    public boolean hasDraft() { return draft != null; }
     public @Nullable Frontier draft() { return draft == null ? null : draft.copy(); }
 
     public void toggle() {
@@ -44,6 +49,7 @@ public final class FrontierMapEditor {
 
     public void cancel() {
         draft = null;
+        newDraft = false;
         adding = false;
         draggedVertex = -1;
     }
@@ -51,6 +57,7 @@ public final class FrontierMapEditor {
     public void newFrontier(String dimension) {
         if (!active || !FrontierClient.canEdit()) return;
         draft = new Frontier();
+        newDraft = true;
         draft.dimension = dimension;
         draft.name = "New Frontier";
         draft.color = 0x48CFA5;
@@ -78,15 +85,19 @@ public final class FrontierMapEditor {
     public boolean press(MapViewport.View view, double x, double y, int button) {
         draggedVertex = -1;
         if (!active || button != InputConstants.MOUSE_BUTTON_LEFT || draft == null) return false;
+        draggedVertex = vertexAt(view, x, y);
+        return draggedVertex >= 0;
+    }
+
+    private int vertexAt(MapViewport.View view, double x, double y) {
         for (int i = 0; i < draft.vertices.length; i += 2) {
             float px = view.screenX(Projection.u(draft.vertices[i], draft.vertices[i + 1]));
             float py = view.screenY(Projection.v(draft.vertices[i], GROUND_Y, draft.vertices[i + 1]));
             if (Math.abs(px - x) <= HANDLE_RADIUS && Math.abs(py - y) <= HANDLE_RADIUS) {
-                draggedVertex = i / 2;
-                return true;
+                return i / 2;
             }
         }
-        return false;
+        return -1;
     }
 
     public boolean drag(MapViewport.View view, double x, double y) {
@@ -98,13 +109,13 @@ public final class FrontierMapEditor {
     }
 
     /**
-     * A click in Add Point mode appends a vertex. Otherwise it selects the
-     * server's region under the cursor, without editing it until Save.
+     * Add Point appends on a new frontier and inserts on an existing frontier.
+     * A click outside Add Point mode selects the server's region under the cursor.
      */
     public boolean release(MapViewport.View view, String dimension, double x, double y, int button, boolean moved) {
         if (!active || button != InputConstants.MOUSE_BUTTON_LEFT) return false;
         if (draggedVertex >= 0) {
-            this.drag(view, x, y);
+            if (moved) this.drag(view, x, y);
             draggedVertex = -1;
             return true;
         }
@@ -112,16 +123,54 @@ public final class FrontierMapEditor {
         double[] point = worldPoint(view, x, y);
         if (adding && draft != null) {
             if (draft.vertices.length / 2 >= Frontier.MAX_VERTICES) return true;
-            int length = draft.vertices.length;
-            double[] next = java.util.Arrays.copyOf(draft.vertices, length + 2);
-            next[length] = point[0];
-            next[length + 1] = point[1];
-            draft.vertices = next;
+            if (newDraft) {
+                insertPoint(draft.vertices.length / 2, point[0], point[1]);
+            } else {
+                EdgePoint edge = insertionAt(view, x, y);
+                if (edge != null) insertPoint(edge.insertIndex(), edge.x(), edge.z());
+            }
             return true;
         }
         draft = FrontierClient.at(dimension, point[0], point[1]);
+        newDraft = false;
         adding = false;
         return true;
+    }
+
+    public @Nullable Frontier frontierAt(MapViewport.View view, String dimension, double x, double y) {
+        double[] point = worldPoint(view, x, y);
+        if (draft != null && draft.dimension.equals(dimension) && draft.contains(point[0], point[1])) return draft.copy();
+        return FrontierClient.at(dimension, point[0], point[1]);
+    }
+
+    public void updateAppearance(Frontier frontier) {
+        if (draft == null || !draft.id.equals(frontier.id)) return;
+        draft.name = frontier.name;
+        draft.color = frontier.color;
+        draft.banner = frontier.banner;
+    }
+
+    public void select(Frontier frontier) {
+        draft = frontier.copy();
+        adding = false;
+        newDraft = false;
+        draggedVertex = -1;
+    }
+
+    private void insertPoint(int index, double x, double z) {
+        double[] vertices = draft.vertices;
+        int offset = index * 2;
+        double[] next = Arrays.copyOf(vertices, vertices.length + 2);
+        System.arraycopy(vertices, offset, next, offset + 2, vertices.length - offset);
+        next[offset] = x;
+        next[offset + 1] = z;
+        draft.vertices = next;
+    }
+
+    private @Nullable EdgePoint insertionAt(MapViewport.View view, double x, double y) {
+        if (!inserting() || draft == null || draft.vertices.length / 2 >= Frontier.MAX_VERTICES
+            || vertexAt(view, x, y) >= 0) return null;
+        return FrontierProjection.edgeAt(draft, view, x, y, HANDLE_RADIUS);
     }
 
     public boolean validDraft() {
@@ -152,7 +201,7 @@ public final class FrontierMapEditor {
     }
 
     /** Preview the unsaved polygon and draggable vertex nodes over the real map. */
-    public void draw(GuiGraphicsExtractor graphics, MapViewport.View view) {
+    public void draw(GuiGraphicsExtractor graphics, MapViewport.View view, double mouseX, double mouseY, boolean preview) {
         if (!active || draft == null) return;
         int count = draft.vertices.length / 2;
         if (count >= 2) {
@@ -176,6 +225,13 @@ public final class FrontierMapEditor {
             int y = Math.round(view.screenY(Projection.v(draft.vertices[i], GROUND_Y, draft.vertices[i + 1])));
             graphics.fill(x - 4, y - 4, x + 5, y + 5, 0xFF101820);
             graphics.fill(x - 2, y - 2, x + 3, y + 3, 0xFF6CFFCB);
+        }
+        EdgePoint edge = preview && draggedVertex < 0 ? insertionAt(view, mouseX, mouseY) : null;
+        if (edge != null) {
+            int x = Math.round(edge.screenX());
+            int y = Math.round(edge.screenY());
+            graphics.fill(x - 4, y - 4, x + 5, y + 5, 0xFF101820);
+            graphics.fill(x - 2, y - 2, x + 3, y + 3, 0xFFFFFFFF);
         }
         graphics.disableScissor();
     }

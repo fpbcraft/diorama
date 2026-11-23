@@ -5,7 +5,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Small, versioned messages carried by Diorama's existing optional play channel.
@@ -22,6 +24,7 @@ public final class FrontierWire {
     public static final int REMOVED = 12;
     public static final int ERROR = 13;
     public static final int REFRESH = 14;
+    public static final int BANNER = 15;
     private static final int MAX_MESSAGE = 8192;
 
     private FrontierWire() {
@@ -29,7 +32,7 @@ public final class FrontierWire {
 
     public static boolean isFrontier(byte[] data) {
         return data != null && data.length > 0
-            && (data[0] & 0xFF) >= BEGIN && (data[0] & 0xFF) <= REFRESH;
+            && (data[0] & 0xFF) >= BEGIN && (data[0] & 0xFF) <= BANNER;
     }
 
     public interface Writer {
@@ -118,11 +121,46 @@ public final class FrontierWire {
         return packet(END, out -> {});
     }
 
-    public static byte[] put(int revision, Frontier frontier) {
+    public static byte[] put(int revision, Frontier frontier, boolean bannerEdited) {
         return packet(PUT, out -> {
             out.writeInt(revision);
             writeFrontier(out, frontier);
+            if (bannerEdited) writeBanner(out, frontier.banner);
         });
+    }
+
+    public static byte[] banner(Frontier frontier) {
+        return packet(BANNER, out -> {
+            // Legacy viewers route unknown kinds through shared terrain, which reads a dimension first.
+            out.writeUTF("");
+            writeUuid(out, frontier.id);
+            writeBanner(out, frontier.banner);
+        });
+    }
+
+    private static void writeBanner(DataOutputStream out, @Nullable FrontierBanner banner) throws IOException {
+        out.writeBoolean(banner != null);
+        if (banner == null) return;
+        out.writeByte(banner.base());
+        out.writeByte(banner.layers().size());
+        for (FrontierBanner.Layer layer : banner.layers()) {
+            out.writeUTF(layer.pattern());
+            out.writeByte(layer.dye());
+        }
+    }
+
+    public static @Nullable FrontierBanner readBanner(DataInputStream in) throws IOException {
+        if (!in.readBoolean()) return null;
+        int base = in.readUnsignedByte();
+        int count = in.readUnsignedByte();
+        if (count > FrontierBanner.MAX_LAYERS) throw new IOException("Too many banner layers");
+        var layers = new ArrayList<FrontierBanner.Layer>(count);
+        for (int i = 0; i < count; i++) {
+            layers.add(new FrontierBanner.Layer(in.readUTF(), in.readUnsignedByte()));
+        }
+        FrontierBanner banner = new FrontierBanner(base, layers);
+        if (!banner.valid()) throw new IOException("Invalid frontier banner");
+        return banner;
     }
 
     public static byte[] remove(int revision, UUID id) {

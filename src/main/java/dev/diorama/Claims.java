@@ -29,13 +29,17 @@ public final class Claims {
 	 * {@code titled} means the name is the claim's whole title as its mod words it, such as Open
 	 * Parties and Claims' "Base - Alex's Claim (Forceloadable)", not an owner to name.
 	 */
-	public record Claim(Owner owner, int rgb, String name, boolean forceLoaded, boolean titled) {
+	public record Claim(Owner owner, int rgb, String name, boolean forceLoaded, boolean titled, @Nullable String territoryName) {
+		public Claim(Owner owner, int rgb, String name, boolean forceLoaded, boolean titled) {
+			this(owner, rgb, name, forceLoaded, titled, null);
+		}
+
 		/** Compatibility for FPBCraft's interactive OPAC helper; native OPAC supplies map data. */
 		public Claim(java.util.UUID legacyOwner, int rgb, String name, boolean forceLoaded) {
 			this(new LegacyOpacOwner(legacyOwner), rgb, name, forceLoaded, false);
 		}
 		public Claim asForceLoaded() {
-			return new Claim(this.owner, this.rgb, this.name, true, this.titled);
+			return new Claim(this.owner, this.rgb, this.name, true, this.titled, this.territoryName);
 		}
 
 		Claim as(Claim team) {
@@ -53,6 +57,9 @@ public final class Claims {
 		 * longer exist, null if that can't be told now. Client thread.
 		 */
 		@Nullable Optional<Claim> look();
+
+		/** An OPAC region's identity, shared by ordinary and forceload-marked chunks. */
+		default @Nullable Object territoryKey() { return null; }
 	}
 
 	/** Compatibility owner for FPBCraft's action-only OPAC bridge. */
@@ -149,10 +156,15 @@ public final class Claims {
 
 	/** Whose a chunk is as last handed over, by any claims mod; null for no one's. Client thread. */
 	public static @Nullable Owner owner(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
+		Claim claim = at(dimension, chunkX, chunkZ);
+		return claim == null ? null : claim.owner();
+	}
+
+	/** Last known claim at a chunk, including when the overlay is off. Client thread only. */
+	public static @Nullable Claim at(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
 		Map<Region, Claim[]> regions = known.get(dimension);
 		Claim[] chunks = regions == null ? null : regions.get(new Region(chunkX >> 5, chunkZ >> 5));
-		Claim claim = chunks == null ? null : chunks[index(chunkX, chunkZ)];
-		return claim == null ? null : claim.owner();
+		return chunks == null ? null : chunks[index(chunkX, chunkZ)];
 	}
 
 	/** Time spent taking in an update, counted toward this tick's. */
@@ -309,6 +321,17 @@ public final class Claims {
 		return slowestTickParts;
 	}
 
+	/** Claim data for the territory directory, even while claim shading is hidden. Client thread. */
+	public static Snapshot directory(ResourceKey<Level> dimension) {
+		Snapshot snapshot = current;
+		return dimension.equals(snapshot.dimension) ? snapshot : new Snapshot(dimension, copyAll(dimension));
+	}
+
+	@FunctionalInterface
+	public interface ChunkClaim {
+		void accept(int chunkX, int chunkZ, Claim claim);
+	}
+
 	/** The claims in one dimension at one moment. Never modified. */
 	public static final class Snapshot {
 		private final @Nullable ResourceKey<Level> dimension;
@@ -318,6 +341,14 @@ public final class Claims {
 		Snapshot(@Nullable ResourceKey<Level> dimension, Map<Region, Claim[]> regions) {
 			this.dimension = dimension;
 			this.regions = regions;
+		}
+
+		public void forEach(ChunkClaim consumer) {
+			this.regions.forEach((region, cells) -> {
+				for (int i = 0; i < cells.length; i++) {
+					if (cells[i] != null) consumer.accept(region.x() << 5 | (i & 31), region.z() << 5 | (i >> 5), cells[i]);
+				}
+			});
 		}
 
 		public boolean isEmpty() {

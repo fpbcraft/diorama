@@ -20,7 +20,11 @@ try {
  const log=join(temp,'dev/diorama/Diorama.java');
  await writeFile(log,'package dev.diorama; public class Diorama {public static final Log LOGGER=new Log();public static class Log {public void warn(String s,Object...v){}}}');
  const bin=process.env.JAVA_HOME?join(process.env.JAVA_HOME,'bin'):'/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home/bin';
- const files=['src/main/java/dev/diorama/frontier/Frontier.java','src/main/java/dev/diorama/frontier/LabelAnchor.java','src/main/java/dev/diorama/web/WebFrontiers.java','tests/web/WebFrontiersTest.java'];
- execFileSync(join(bin,'javac'),['-cp',gson,'-d',temp,log,...files.map(f=>join(root,f))],{stdio:'inherit'});
+ const annotations=join(temp,'org/jspecify/annotations');
+ await mkdir(annotations,{recursive:true});
+ const nullable=join(annotations,'Nullable.java');
+ await writeFile(nullable,'package org.jspecify.annotations; public @interface Nullable {}');
+ const files=['src/main/java/dev/diorama/frontier/FrontierBanner.java','src/main/java/dev/diorama/frontier/Frontier.java','src/main/java/dev/diorama/frontier/LabelAnchor.java','src/main/java/dev/diorama/web/WebFrontiers.java','tests/web/WebFrontiersTest.java'];
+ execFileSync(join(bin,'javac'),['-cp',gson,'-d',temp,log,nullable,...files.map(f=>join(root,f))],{stdio:'inherit'});
  execFileSync(join(bin,'java'),['-cp',temp+delimiter+gson,'dev.diorama.web.WebFrontiersTest',temp],{stdio:'inherit',timeout:12000});
 } finally {await rm(temp,{recursive:true,force:true});}
